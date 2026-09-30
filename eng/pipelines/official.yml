@@ -1,0 +1,25 @@
+trigger:
+- main
+
+pr: none
+
+resources:
+  repositories:
+  - repository: 1esPipelines
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
+  parameters:
+    pool:
+      name: AzurePipelines-EO
+      image: 1ESPT-Windows2022
+      os: windows
+    stages:
+    - stage: Build
+      jobs:
+      - job: HelloWorld
+        steps:
+        - script: echo Hello world!
