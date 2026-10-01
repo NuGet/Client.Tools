@@ -14,8 +14,7 @@ extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
   parameters:
     pool:
-      name: NetCore-Public
-      demands: ImageOverride -equals windows.vs2026.amd64.open
+      name: windows.vs2026.amd64.open
     stages:
     - stage: Build
       jobs:
