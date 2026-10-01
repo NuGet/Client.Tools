@@ -15,7 +15,7 @@ extends:
   parameters:
     pool:
       name: NetCore-Public
-      demands: ImageOverride -equals windows.vs2022.amd64.open
+      demands: ImageOverride -equals windows.vs2026.amd64.open
     stages:
     - stage: Build
       jobs:
