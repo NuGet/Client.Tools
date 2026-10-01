@@ -15,7 +15,7 @@ extends:
   parameters:
     pool:
       name: NetCore1ESPool-Internal
-      demands: ImageOverride -equals windows.vs2026.amd64.open
+      demands: ImageOverride -equals windows.vs2026.amd64
       os: windows
     stages:
     - stage: Build
