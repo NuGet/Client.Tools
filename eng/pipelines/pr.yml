@@ -5,22 +5,15 @@ pr:
     include:
     - main
 
-resources:
-  repositories:
-  - repository: 1esPipelines
-    type: git
-    name: 1ESPipelineTemplates/1ESPipelineTemplates
-    ref: refs/tags/release
+pool:
+  name: NetCore-Public
+  demands:
+  - ImageOverride -equals windows.vs2026.amd64.open
 
-extends:
-  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
-  parameters:
-    pool:
-      name: NetCore-Public
-      demands: ImageOverride -equals windows.vs2026.amd64.open
-    stages:
-    - stage: Build
-      jobs:
-      - job: HelloWorld
-        steps:
-        - script: echo Hello world!
+stages:
+- stage: Build
+  jobs:
+  - job: HelloWorld
+    steps:
+    - script: echo Hello world!
+      displayName: Run PR smoke check
