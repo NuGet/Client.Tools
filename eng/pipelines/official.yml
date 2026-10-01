@@ -3,6 +3,12 @@ trigger:
 
 pr: none
 
+parameters:
+- name: DotnetPackageSkillsReleaseBuild
+  displayName: Produce a stable dotnet-package-skills package (manual main builds only)
+  type: boolean
+  default: false
+
 resources:
   repositories:
   - repository: 1esPipelines
@@ -18,8 +24,7 @@ extends:
       demands: ImageOverride -equals windows.vs2026.amd64
       os: windows
     stages:
-    - stage: Build
-      jobs:
-      - job: HelloWorld
-        steps:
-        - script: echo Hello world!
+    - template: /eng/pipelines/dotnet-package-skills/stage.yml@self
+      parameters:
+        isOfficialBuild: true
+        releaseBuild: ${{ parameters.DotnetPackageSkillsReleaseBuild }}

@@ -11,9 +11,7 @@ pool:
   - ImageOverride -equals windows.vs2026.amd64.open
 
 stages:
-- stage: Build
-  jobs:
-  - job: HelloWorld
-    steps:
-    - script: echo Hello world!
-      displayName: Run PR smoke check
+- template: dotnet-package-skills/stage.yml
+  parameters:
+    isOfficialBuild: false
+    releaseBuild: false

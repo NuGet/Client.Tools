@@ -1,0 +1,215 @@
+parameters:
+- name: isOfficialBuild
+  type: boolean
+  default: false
+- name: releaseBuild
+  type: boolean
+  default: false
+
+stages:
+- stage: DotnetPackageSkills
+  displayName: dotnet-package-skills
+  dependsOn: []
+  variables:
+  - name: DotnetPackageSkillsDirectory
+    value: $(Build.SourcesDirectory)\dotnet-package-skills
+  - name: DotnetPackageSkillsPipelineDirectory
+    value: $(Build.SourcesDirectory)\eng\pipelines\dotnet-package-skills
+  - name: DotnetPackageSkillsArtifacts
+    value: $(Build.ArtifactStagingDirectory)\dotnet-package-skills
+  - name: DOTNET_NOLOGO
+    value: '1'
+  - name: DOTNET_CLI_TELEMETRY_OPTOUT
+    value: '1'
+  - name: DOTNET_GENERATE_ASPNET_CERTIFICATE
+    value: 'false'
+  - name: DOTNET_ADD_GLOBAL_TOOLS_TO_PATH
+    value: 'false'
+  jobs:
+  - job: BuildWindows
+    displayName: Build, test, and package
+    timeoutInMinutes: 60
+    ${{ if eq(parameters.isOfficialBuild, true) }}:
+      templateContext:
+        outputs:
+        - output: pipelineArtifact
+          targetPath: $(DotnetPackageSkillsArtifacts)\packages
+          artifactName: dotnet-package-skills-packages
+        - output: pipelineArtifact
+          targetPath: $(DotnetPackageSkillsArtifacts)\logs
+          artifactName: dotnet-package-skills-logs
+          condition: succeededOrFailed()
+          isProduction: false
+        - output: pipelineArtifact
+          targetPath: $(DotnetPackageSkillsArtifacts)\testresults
+          artifactName: dotnet-package-skills-testresults
+          condition: succeededOrFailed()
+          isProduction: false
+    steps:
+    - checkout: self
+      clean: true
+      fetchDepth: 1
+      fetchTags: false
+
+    - pwsh: |
+        foreach ($directory in @('logs', 'testresults', 'packages')) {
+          New-Item -ItemType Directory -Force -Path "$(DotnetPackageSkillsArtifacts)\$directory" | Out-Null
+        }
+      displayName: Prepare tool artifact directories
+
+    - ${{ if eq(parameters.isOfficialBuild, true) }}:
+      - pwsh: |
+          if ($env:BUILD_REPOSITORY_PROVIDER -ne 'TfsGit' -or
+              $env:BUILD_REPOSITORY_NAME -ne 'NuGet-Client.Tools' -or
+              $env:SYSTEM_TEAMPROJECT -ne 'internal' -or
+              $env:SYSTEM_COLLECTIONURI -ne 'https://dev.azure.com/dnceng/' -or
+              $env:BUILD_SOURCEBRANCH -ne 'refs/heads/main' -or
+              $env:BUILD_REASON -eq 'PullRequest') {
+            throw 'Official signing requires main from the trusted dnceng/internal/NuGet-Client.Tools repository.'
+          }
+          foreach ($name in @(
+            'ESRP_SERVICE_CONNECTION', 'ESRP_MANAGED_IDENTITY', 'ESRP_TENANT', 'ESRP_CLIENT',
+            'ESRP_KEY_VAULT', 'ESRP_REQUEST_CERTIFICATE', 'ESRP_BINARY_KEY', 'ESRP_NUGET_KEY'
+          )) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value) -or $value.Contains('$(')) {
+              throw "Missing official signing setting $name. Configure and authorize the pipeline as described in eng/pipelines/dotnet-package-skills/README.md."
+            }
+          }
+          foreach ($name in @('ESRP_MANAGED_IDENTITY', 'ESRP_TENANT', 'ESRP_CLIENT')) {
+            $parsed = [guid]::Empty
+            if (-not [guid]::TryParse([Environment]::GetEnvironmentVariable($name), [ref] $parsed)) {
+              throw "Signing setting $name must be a GUID."
+            }
+          }
+          foreach ($name in @('ESRP_BINARY_KEY', 'ESRP_NUGET_KEY')) {
+            if ([Environment]::GetEnvironmentVariable($name) -cnotmatch '^[A-Za-z0-9-]+$') {
+              throw "Signing setting $name must be an approved ESRP key code."
+            }
+          }
+        displayName: Validate trusted source and required signing configuration
+        env:
+          ESRP_SERVICE_CONNECTION: $(DotnetPackageSkillsEsrpServiceConnection)
+          ESRP_MANAGED_IDENTITY: $(DotnetPackageSkillsEsrpManagedIdentityClientId)
+          ESRP_TENANT: $(DotnetPackageSkillsEsrpTenantId)
+          ESRP_CLIENT: $(DotnetPackageSkillsEsrpClientId)
+          ESRP_KEY_VAULT: $(DotnetPackageSkillsEsrpKeyVault)
+          ESRP_REQUEST_CERTIFICATE: $(DotnetPackageSkillsEsrpRequestSigningCertificate)
+          ESRP_BINARY_KEY: $(DotnetPackageSkillsEsrpBinaryKeyCode)
+          ESRP_NUGET_KEY: $(DotnetPackageSkillsEsrpNuGetKeyCode)
+
+    - task: UseDotNet@2
+      displayName: Install pinned .NET SDK
+      inputs:
+        packageType: sdk
+        useGlobalJson: true
+        workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - task: UseDotNet@2
+      displayName: Install .NET 8 runtime for compatibility tests
+      inputs:
+        packageType: runtime
+        version: 8.0.x
+
+    - pwsh: |
+        $baseVersion = dotnet msbuild .\src\DotnetPackageSkills\DotnetPackageSkills.csproj -nologo -getProperty:VersionPrefix
+        if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate the tool base version.' }
+        $official = [bool]::Parse('${{ parameters.isOfficialBuild }}')
+        $release = [bool]::Parse('${{ parameters.releaseBuild }}')
+        $version = & "$(DotnetPackageSkillsPipelineDirectory)\Get-PackageVersion.ps1" `
+          -BaseVersion $baseVersion.Trim() -BuildId $env:BUILD_BUILDID `
+          -BuildReason $env:BUILD_REASON -SourceBranch $env:BUILD_SOURCEBRANCH `
+          -PullRequestNumber $env:SYSTEM_PULLREQUEST_PULLREQUESTNUMBER `
+          -Official:$official -ReleaseBuild:$release
+        Write-Host "##vso[task.setvariable variable=DotnetPackageSkillsVersion]$version"
+        Write-Host "dotnet-package-skills package version: $version"
+      displayName: Resolve package version
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - pwsh: |
+        dotnet restore .\DotnetPackageSkills.slnx --configfile .\NuGet.config `
+          "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
+          "-bl:$(DotnetPackageSkillsArtifacts)\logs\restore.binlog"
+        if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
+      displayName: Restore tool, samples, and tests
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - pwsh: |
+        dotnet build .\DotnetPackageSkills.slnx --configuration Release --no-restore `
+          "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
+          "-p:SourceRevisionId=$(Build.SourceVersion)" `
+          "-bl:$(DotnetPackageSkillsArtifacts)\logs\build.binlog"
+        if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+      displayName: Build tool and C# tests
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - pwsh: |
+        dotnet test .\tests\DotnetPackageSkills.Tests\DotnetPackageSkills.Tests.csproj `
+          --configuration Release --no-build --no-restore `
+          "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
+          --logger "trx;LogFilePrefix=dotnet-package-skills" `
+          --results-directory "$(DotnetPackageSkillsArtifacts)\testresults"
+        if ($LASTEXITCODE -ne 0) { throw 'C# tests failed.' }
+      displayName: Run C# tests on .NET 8 and .NET 10
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - task: PublishTestResults@2
+      displayName: Publish C# test results
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: VSTest
+        testResultsFiles: $(DotnetPackageSkillsArtifacts)\testresults\**\*.trx
+        testRunTitle: dotnet-package-skills
+        failTaskOnFailedTests: true
+        failTaskOnMissingResultsFile: true
+        failTaskOnFailureToPublishResults: true
+
+    - ${{ if eq(parameters.isOfficialBuild, true) }}:
+      - template: steps-sign.yml
+        parameters:
+          target: assemblies
+
+    - pwsh: |
+        dotnet pack .\src\DotnetPackageSkills\DotnetPackageSkills.csproj `
+          --configuration Release --no-build --no-restore `
+          "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
+          "-p:SourceRevisionId=$(Build.SourceVersion)" `
+          --output "$(DotnetPackageSkillsArtifacts)\packages" `
+          "-bl:$(DotnetPackageSkillsArtifacts)\logs\pack.binlog"
+        if ($LASTEXITCODE -ne 0) { throw 'Tool packaging failed.' }
+      displayName: Pack the tool without rebuilding
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - ${{ if eq(parameters.isOfficialBuild, true) }}:
+      - template: steps-sign.yml
+        parameters:
+          target: package
+
+    - pwsh: |
+        $signed = [bool]::Parse('${{ parameters.isOfficialBuild }}')
+        & "$(DotnetPackageSkillsPipelineDirectory)\Verify-Package.ps1" `
+          -PackagePath "$(DotnetPackageSkillsArtifacts)\packages\dotnet-package-skills.$(DotnetPackageSkillsVersion).nupkg" `
+          -ExpectedVersion "$(DotnetPackageSkillsVersion)" `
+          -BuildOutputPath "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release" `
+          -RequireSigned:$signed
+      displayName: Verify and install the exact package on both runtimes
+      workingDirectory: $(DotnetPackageSkillsDirectory)
+
+    - ${{ if eq(parameters.isOfficialBuild, false) }}:
+      - task: PublishPipelineArtifact@1
+        displayName: Publish unsigned PR package
+        inputs:
+          targetPath: $(DotnetPackageSkillsArtifacts)\packages
+          artifact: dotnet-package-skills-packages
+      - task: PublishPipelineArtifact@1
+        displayName: Publish diagnostic logs
+        condition: succeededOrFailed()
+        inputs:
+          targetPath: $(DotnetPackageSkillsArtifacts)\logs
+          artifact: dotnet-package-skills-logs
+      - task: PublishPipelineArtifact@1
+        displayName: Publish test result files
+        condition: succeededOrFailed()
+        inputs:
+          targetPath: $(DotnetPackageSkillsArtifacts)\testresults
+          artifact: dotnet-package-skills-testresults

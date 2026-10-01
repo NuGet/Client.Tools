@@ -1,0 +1,121 @@
+parameters:
+- name: target
+  type: string
+  values:
+  - assemblies
+  - package
+
+steps:
+- ${{ if eq(parameters.target, 'assemblies') }}:
+  - pwsh: |
+      foreach ($framework in @('net8.0', 'net10.0')) {
+        $assembly = Get-Item -LiteralPath "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release\$framework\dotnet-package-skills.dll"
+        if ($assembly.Length -eq 0) { throw "Empty signing input for $framework." }
+        $built = "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release\$framework\dotnet-package-skills.dll"
+        if ((Get-FileHash -LiteralPath $assembly.FullName).Hash -cne (Get-FileHash -LiteralPath $built).Hash) {
+          throw "The $framework pack input does not match the tested build output."
+        }
+      }
+    displayName: Check expected tool assembly signing inputs
+  - task: EsrpCodeSigning@6
+    displayName: Sign and verify tool assemblies
+    inputs:
+      ConnectedServiceName: $(DotnetPackageSkillsEsrpServiceConnection)
+      AppRegistrationClientId: $(DotnetPackageSkillsEsrpManagedIdentityClientId)
+      AppRegistrationTenantId: $(DotnetPackageSkillsEsrpTenantId)
+      EsrpClientId: $(DotnetPackageSkillsEsrpClientId)
+      AuthAKVName: $(DotnetPackageSkillsEsrpKeyVault)
+      AuthSignCertName: $(DotnetPackageSkillsEsrpRequestSigningCertificate)
+      UseMSIAuthentication: true
+      # PackAsTool publishes the intermediate assembly, not the copy in bin.
+      FolderPath: $(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release
+      Pattern: |
+        net8.0/dotnet-package-skills.dll
+        net10.0/dotnet-package-skills.dll
+      UseMinimatch: true
+      signConfigType: inlineSignParams
+      inlineOperation: |
+        [
+          {
+            "keyCode": "$(DotnetPackageSkillsEsrpBinaryKeyCode)",
+            "operationCode": "SigntoolSign",
+            "parameters": {
+              "OpusName": "Microsoft",
+              "OpusInfo": "http://www.microsoft.com",
+              "FileDigest": "/fd \"SHA256\"",
+              "PageHash": "/NPH",
+              "TimeStamp": "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+            },
+            "toolName": "sign",
+            "toolVersion": "1.0"
+          },
+          {
+            "keyCode": "$(DotnetPackageSkillsEsrpBinaryKeyCode)",
+            "operationCode": "SigntoolVerify",
+            "parameters": {},
+            "toolName": "sign",
+            "toolVersion": "1.0"
+          }
+        ]
+  - pwsh: |
+      foreach ($framework in @('net8.0', 'net10.0')) {
+        $assembly = "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release\$framework\dotnet-package-skills.dll"
+        $signature = Get-AuthenticodeSignature -LiteralPath $assembly
+        if ($signature.Status -ne 'Valid') {
+          throw "The $framework assembly signature is not valid: $($signature.StatusMessage)"
+        }
+        Copy-Item -LiteralPath $assembly -Destination "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release\$framework\dotnet-package-skills.dll" -Force
+      }
+    displayName: Verify assembly signatures before packing
+
+- ${{ if eq(parameters.target, 'package') }}:
+  - pwsh: |
+      $packages = @(Get-ChildItem -LiteralPath "$(DotnetPackageSkillsArtifacts)\packages" -Filter '*.nupkg')
+      $expected = "dotnet-package-skills.$(DotnetPackageSkillsVersion).nupkg"
+      if ($packages.Count -ne 1 -or $packages[0].Name -cne $expected -or $packages[0].Length -eq 0) {
+        throw "Expected exactly one nonempty tool package: $expected"
+      }
+    displayName: Check exact NuGet signing input
+  - task: EsrpMalwareScanning@6
+    displayName: Scan the tool package before signing
+    inputs:
+      ConnectedServiceName: $(DotnetPackageSkillsEsrpServiceConnection)
+      AppRegistrationClientId: $(DotnetPackageSkillsEsrpManagedIdentityClientId)
+      AppRegistrationTenantId: $(DotnetPackageSkillsEsrpTenantId)
+      EsrpClientId: $(DotnetPackageSkillsEsrpClientId)
+      UseMSIAuthentication: true
+      FolderPath: $(DotnetPackageSkillsArtifacts)\packages
+      Pattern: dotnet-package-skills.$(DotnetPackageSkillsVersion).nupkg
+      UseMinimatch: true
+      CleanupTempStorage: true
+  - task: EsrpCodeSigning@6
+    displayName: Sign and verify the NuGet package
+    inputs:
+      ConnectedServiceName: $(DotnetPackageSkillsEsrpServiceConnection)
+      AppRegistrationClientId: $(DotnetPackageSkillsEsrpManagedIdentityClientId)
+      AppRegistrationTenantId: $(DotnetPackageSkillsEsrpTenantId)
+      EsrpClientId: $(DotnetPackageSkillsEsrpClientId)
+      AuthAKVName: $(DotnetPackageSkillsEsrpKeyVault)
+      AuthSignCertName: $(DotnetPackageSkillsEsrpRequestSigningCertificate)
+      UseMSIAuthentication: true
+      FolderPath: $(DotnetPackageSkillsArtifacts)\packages
+      Pattern: dotnet-package-skills.$(DotnetPackageSkillsVersion).nupkg
+      UseMinimatch: true
+      signConfigType: inlineSignParams
+      inlineOperation: |
+        [
+          {
+            "keyCode": "$(DotnetPackageSkillsEsrpNuGetKeyCode)",
+            "operationSetCode": "NuGetSign",
+            "parameters": [],
+            "toolName": "sign",
+            "toolVersion": "1.0"
+          },
+          {
+            "keyCode": "$(DotnetPackageSkillsEsrpNuGetKeyCode)",
+            "operationSetCode": "NuGetVerify",
+            "parameters": [],
+            "toolName": "sign",
+            "toolVersion": "1.0"
+          }
+        ]
