@@ -9,9 +9,9 @@ steps:
 - ${{ if eq(parameters.target, 'assemblies') }}:
   - pwsh: |
       foreach ($framework in @('net8.0', 'net10.0')) {
-        $assembly = Get-Item -LiteralPath "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release\$framework\dotnet-package-skills.dll"
+        $assembly = Get-Item -LiteralPath "$(DotnetPackageSkillsDirectory)\src\obj\Release\$framework\dotnet-package-skills.dll"
         if ($assembly.Length -eq 0) { throw "Empty signing input for $framework." }
-        $built = "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release\$framework\dotnet-package-skills.dll"
+        $built = "$(DotnetPackageSkillsDirectory)\src\bin\Release\$framework\dotnet-package-skills.dll"
         if ((Get-FileHash -LiteralPath $assembly.FullName).Hash -cne (Get-FileHash -LiteralPath $built).Hash) {
           throw "The $framework pack input does not match the tested build output."
         }
@@ -28,7 +28,7 @@ steps:
       AuthSignCertName: $(DotnetPackageSkillsEsrpRequestSigningCertificate)
       UseMSIAuthentication: true
       # PackAsTool publishes the intermediate assembly, not the copy in bin.
-      FolderPath: $(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release
+      FolderPath: $(DotnetPackageSkillsDirectory)\src\obj\Release
       Pattern: |
         net8.0/dotnet-package-skills.dll
         net10.0/dotnet-package-skills.dll
@@ -59,12 +59,12 @@ steps:
         ]
   - pwsh: |
       foreach ($framework in @('net8.0', 'net10.0')) {
-        $assembly = "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\obj\Release\$framework\dotnet-package-skills.dll"
+        $assembly = "$(DotnetPackageSkillsDirectory)\src\obj\Release\$framework\dotnet-package-skills.dll"
         $signature = Get-AuthenticodeSignature -LiteralPath $assembly
         if ($signature.Status -ne 'Valid') {
           throw "The $framework assembly signature is not valid: $($signature.StatusMessage)"
         }
-        Copy-Item -LiteralPath $assembly -Destination "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release\$framework\dotnet-package-skills.dll" -Force
+        Copy-Item -LiteralPath $assembly -Destination "$(DotnetPackageSkillsDirectory)\src\bin\Release\$framework\dotnet-package-skills.dll" -Force
       }
     displayName: Verify assembly signatures before packing
 

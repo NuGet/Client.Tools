@@ -598,12 +598,12 @@ commands on Windows only.
 Set-Location .\dotnet-package-skills
 dotnet restore .\DotnetPackageSkills.slnx --configfile .\NuGet.config
 dotnet build .\DotnetPackageSkills.slnx -c Release --no-restore
-dotnet test .\tests\DotnetPackageSkills.Tests\DotnetPackageSkills.Tests.csproj -c Release --no-build --no-restore
-dotnet pack .\src\DotnetPackageSkills\DotnetPackageSkills.csproj -c Release --no-build --no-restore -o .\artifacts\packages
+dotnet test .\tests\DotnetPackageSkills.Tests.csproj -c Release --no-build --no-restore
+dotnet pack .\src\DotnetPackageSkills.csproj -c Release --no-build --no-restore -o .\artifacts\packages
 pwsh -NoProfile -File ..\eng\pipelines\dotnet-package-skills\Verify-Package.ps1 `
   -PackagePath .\artifacts\packages\dotnet-package-skills.0.1.0-dev.nupkg `
   -ExpectedVersion 0.1.0-dev `
-  -BuildOutputPath .\src\DotnetPackageSkills\bin\Release
+  -BuildOutputPath .\src\bin\Release
 ```
 
 This verification command installs the exact local package into a temporary tool path, once for

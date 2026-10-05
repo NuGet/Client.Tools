@@ -3,9 +3,9 @@
     <Project Path="samples/Contoso.Widgets/Contoso.Widgets.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/DotnetPackageSkills/DotnetPackageSkills.csproj" />
+    <Project Path="src/DotnetPackageSkills.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/DotnetPackageSkills.Tests/DotnetPackageSkills.Tests.csproj" />
+    <Project Path="tests/DotnetPackageSkills.Tests.csproj" />
   </Folder>
 </Solution>

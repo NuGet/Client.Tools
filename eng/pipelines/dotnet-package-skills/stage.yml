@@ -112,7 +112,7 @@ stages:
         version: 8.0.x
 
     - pwsh: |
-        $baseVersion = dotnet msbuild .\src\DotnetPackageSkills\DotnetPackageSkills.csproj -nologo -getProperty:VersionPrefix
+        $baseVersion = dotnet msbuild .\src\DotnetPackageSkills.csproj -nologo -getProperty:VersionPrefix
         if ($LASTEXITCODE -ne 0) { throw 'Could not evaluate the tool base version.' }
         $official = [bool]::Parse('${{ parameters.isOfficialBuild }}')
         $release = [bool]::Parse('${{ parameters.releaseBuild }}')
@@ -144,7 +144,7 @@ stages:
       workingDirectory: $(DotnetPackageSkillsDirectory)
 
     - pwsh: |
-        dotnet test .\tests\DotnetPackageSkills.Tests\DotnetPackageSkills.Tests.csproj `
+        dotnet test .\tests\DotnetPackageSkills.Tests.csproj `
           --configuration Release --no-build --no-restore `
           "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
           --logger "trx;LogFilePrefix=dotnet-package-skills" `
@@ -170,7 +170,7 @@ stages:
           target: assemblies
 
     - pwsh: |
-        dotnet pack .\src\DotnetPackageSkills\DotnetPackageSkills.csproj `
+        dotnet pack .\src\DotnetPackageSkills.csproj `
           --configuration Release --no-build --no-restore `
           "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
           "-p:SourceRevisionId=$(Build.SourceVersion)" `
@@ -190,7 +190,7 @@ stages:
         & "$(DotnetPackageSkillsPipelineDirectory)\Verify-Package.ps1" `
           -PackagePath "$(DotnetPackageSkillsArtifacts)\packages\dotnet-package-skills.$(DotnetPackageSkillsVersion).nupkg" `
           -ExpectedVersion "$(DotnetPackageSkillsVersion)" `
-          -BuildOutputPath "$(DotnetPackageSkillsDirectory)\src\DotnetPackageSkills\bin\Release" `
+          -BuildOutputPath "$(DotnetPackageSkillsDirectory)\src\bin\Release" `
           -RequireSigned:$signed
       displayName: Verify and install the exact package on both runtimes
       workingDirectory: $(DotnetPackageSkillsDirectory)

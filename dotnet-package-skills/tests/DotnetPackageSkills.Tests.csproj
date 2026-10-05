@@ -19,8 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DotnetPackageSkills\DotnetPackageSkills.csproj" />
-    <None Include="..\..\..\eng\pipelines\dotnet-package-skills\Get-PackageVersion.ps1"
+    <ProjectReference Include="..\src\DotnetPackageSkills.csproj" />
+    <None Include="..\..\eng\pipelines\dotnet-package-skills\Get-PackageVersion.ps1"
           Link="Pipeline\Get-PackageVersion.ps1"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -14,23 +14,23 @@ git clone https://github.com/NuGet/Client.Tools.git
 Set-Location .\Client.Tools\dotnet-package-skills
 dotnet restore .\DotnetPackageSkills.slnx --configfile .\NuGet.config
 dotnet build .\DotnetPackageSkills.slnx -c Release --no-restore
-dotnet test .\tests\DotnetPackageSkills.Tests\DotnetPackageSkills.Tests.csproj -c Release --no-build --no-restore
+dotnet test .\tests\DotnetPackageSkills.Tests.csproj -c Release --no-build --no-restore
 ```
 
 Try your build against a real repository without installing it:
 
 ```bash
-dotnet run --project src/DotnetPackageSkills -f net10.0 -- list --target /path/to/YourApp.sln
+dotnet run --project src -f net10.0 -- list --target /path/to/YourApp.sln
 ```
 
 Pack and verify your build without replacing a globally installed tool:
 
 ```powershell
-dotnet pack .\src\DotnetPackageSkills\DotnetPackageSkills.csproj -c Release --no-build --no-restore -o .\artifacts\packages
+dotnet pack .\src\DotnetPackageSkills.csproj -c Release --no-build --no-restore -o .\artifacts\packages
 pwsh -NoProfile -File ..\eng\pipelines\dotnet-package-skills\Verify-Package.ps1 `
   -PackagePath .\artifacts\packages\dotnet-package-skills.0.1.0-dev.nupkg `
   -ExpectedVersion 0.1.0-dev `
-  -BuildOutputPath .\src\DotnetPackageSkills\bin\Release
+  -BuildOutputPath .\src\bin\Release
 ```
 
 ## Origin
@@ -49,7 +49,7 @@ example when its function moves into the .NET SDK.
 ## Layout
 
 ```
-src/DotnetPackageSkills/
+src/
 ├── Program.cs              CLI surface: commands, options, exit codes
 ├── SkillInstallService.cs     Orchestration. This is the only file that puts the steps in order.
 ├── Cli/OutputWriter.cs     Writes reports for people to read
@@ -60,7 +60,7 @@ src/DotnetPackageSkills/
 ├── NuGet/                  Target detection, package listing, cache path resolution
 └── Skills/                 Discovery, copying, version-change removal, the install manifest
 
-tests/DotnetPackageSkills.Tests/    xunit tests. Application tests use in-process fakes.
+tests/                              xunit tests. Application tests use in-process fakes.
 samples/Contoso.Widgets/            An example of a package that ships a skill
 ```
 

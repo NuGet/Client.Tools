@@ -121,7 +121,7 @@ From the tool source folder, after building and packing:
 pwsh -NoProfile -File ..\eng\pipelines\dotnet-package-skills\Verify-Package.ps1 `
   -PackagePath .\artifacts\packages\dotnet-package-skills.0.1.0-dev.nupkg `
   -ExpectedVersion 0.1.0-dev `
-  -BuildOutputPath .\src\DotnetPackageSkills\bin\Release
+  -BuildOutputPath .\src\bin\Release
 ```
 
 Use the actual package version when verifying CI artifacts. The helper uses a local-only
