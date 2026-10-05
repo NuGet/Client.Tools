@@ -107,6 +107,62 @@ Packing must not rebuild or replace those assemblies.
 The first successful signed run remains an onboarding acceptance gate. Local and public PR
 validation alone do not establish that ESRP permissions are configured.
 
+## SDL and compliance (1ES Pipeline Templates)
+
+`official.yml` extends `v1/1ES.Official.PipelineTemplate.yml@1esPipelines`, so Azure DevOps
+injects 1ES Pipeline Templates (1ES PT) SDL analysis automatically. This stage passes only
+`pool` and `stages` to that template: no `sdl:` or `settings:` block tunes, suppresses, or
+disables any 1ES PT compliance tool. Every behavior below is the 1ES PT **default** for a
+pipeline extending the Official template, not something this repository configured.
+
+The repository has no `.config\tsaoptions.json` anywhere, and `official.yml` sets no
+`sdl.tsa.enabled`. [Trust Services Automation (TSA)](https://aka.ms/tsa) is therefore off, which
+matters because several 1ES PT tools behave differently with TSA on or off: with TSA on, a
+finding files an ADO bug and the pipeline keeps going; with TSA off, the same finding fails the
+job outright, with no override available. For a C#/PowerShell/.NET tool repository with no
+JavaScript, Java, Rust, C/C++, or ARM template content, the tools that actually run are:
+
+| Tool | Runs by default | Breaks the run today (TSA is off) |
+| --- | --- | --- |
+| AntiMalware | Yes | Yes, always (no override exists) |
+| BinSkim (binary analysis) | Yes, against `dotnet-package-skills.dll` | Yes, on any finding |
+| Component Governance | Yes, against every restored NuGet package | Yes, on an unresolved alert |
+| PSScriptAnalyzer | Yes, against every `.ps1` file and inline `pwsh` step | Yes, on any finding |
+| CodeQL 3000 | Yes, source analysis | No, it only files findings |
+| 1ES Secret Scanning (SPMI) | Yes | No, it only files findings |
+| CredScan, PoliCheck, Bandit, Roslyn Analyzers, ESLint, SpotBugs, Armory, AccessibilityInsights, ApiScan | No (off by default, or not applicable to this stack) | N/A |
+
+This stage ships `Get-PackageVersion.ps1`, `Verify-Package.ps1`, and several inline `pwsh` build
+steps, so PSScriptAnalyzer is the most likely of these to surface a real finding. BinSkim and
+Component Governance are untested here too: the official pipeline has never had a successful
+run (see above), so this SDL gate is unvalidated in addition to the ESRP gap. Budget for the
+first real run to fail on a 1ES PT finding independently of ESRP configuration.
+
+A pipeline owner can change this balance by enabling TSA so these tools file bugs instead of
+failing the build:
+
+```yaml
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
+  parameters:
+    sdl:
+      tsa:
+        enabled: true
+        config:
+          # Real codebase name, area path, and notification aliases from the owning
+          # Service Tree entry. Do not invent placeholder values here.
+```
+
+This repository does not set these values because they belong to whichever team registers this
+pipeline in Service Tree, not to the tool itself. See [SDL Analysis in 1ES Pipeline
+Templates](https://eng.ms/docs/coreai/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/sdlanalysis/overview)
+and [TSA support in 1ES PT](https://eng.ms/docs/coreai/devdiv/one-engineering-system-1es/1es-docs/1es-pipeline-templates/features/sdlanalysis/tsasupport)
+for the full tool matrix and TSA onboarding steps.
+
+`pr.yml` extends no 1ES template at all (`dnceng-public/public` has no access to
+`1ESPipelineTemplates`), so none of this SDL analysis runs against public pull requests. It
+applies only to the trusted internal/official pipeline.
+
 ### Alternative considered: `dotnet/sign`
 
 [`dotnet/sign`](https://github.com/dotnet/sign) is a .NET Foundation CLI tool that signs
