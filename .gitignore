@@ -24,6 +24,9 @@ bld/
 [Ll]ogs/
 
 # .NET Core
+.dotnet/
+.packages/
+.tools/
 project.lock.json
 project.fragment.lock.json
 artifacts/
@@ -55,3 +58,6 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Keep vendored Arcade platform directories tracked.
+!eng/common/**

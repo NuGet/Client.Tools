@@ -13,7 +13,20 @@ pool:
 stages:
 - stage: Build
   jobs:
-  - job: HelloWorld
-    steps:
-    - script: echo Hello world!
-      displayName: Run PR smoke check
+  - template: /eng/common/templates/jobs/jobs.yml
+    parameters:
+      runAsPublic: true
+      enableMicrobuild: false
+      enableTelemetry: false
+      enablePublishBuildAssets: false
+      artifacts:
+        publish:
+          logs: true
+      jobs:
+      - job: ArcadeInfrastructure
+        variables:
+        - name: _BuildConfig
+          value: Release
+        steps:
+        - script: eng\common\build.cmd -restore -build -configuration $(_BuildConfig) -ci
+          displayName: Restore and validate Arcade infrastructure

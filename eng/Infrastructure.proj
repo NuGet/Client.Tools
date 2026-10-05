@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsShipping>false</IsShipping>
+  </PropertyGroup>
+
+  <Target Name="ValidateArcadeInfrastructure" BeforeTargets="CollectPackageReferences;Build">
+    <Error Condition="'$(ClientToolsArcadePropsImported)' != 'true'"
+           Text="Directory.Build.props must import Microsoft.DotNet.Arcade.Sdk." />
+    <Error Condition="'$(ClientToolsArcadeTargetsImported)' != 'true'"
+           Text="Directory.Build.targets must import Microsoft.DotNet.Arcade.Sdk." />
+    <Error Condition="'$(VersionPrefix)' == ''"
+           Text="eng\Versions.props must define VersionPrefix." />
+    <Error Condition="'$(RepoRoot)' == '' or '$(ArtifactsDir)' == '' or '$(ArtifactsLogDir)' == ''"
+           Text="Arcade repository and artifact paths must be configured." />
+    <Error Condition="'$(IsPackable)' != 'false' or '$(IsShipping)' != 'false'"
+           Text="The infrastructure project must remain non-packable and non-shipping." />
+    <Message Importance="high" Text="Arcade infrastructure validation succeeded." />
+  </Target>
+</Project>
