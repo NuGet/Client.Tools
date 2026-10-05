@@ -3,11 +3,6 @@
 This tool copies agent skills from inside NuGet packages into a folder that your coding agent
 reads.
 
-For a command reference and sample output, see the
-[functional specification](docs/functional-spec.md). For the expected result in each situation,
-such as a package upgrade or a package that leaves the project, see
-[scenarios](docs/scenarios.md).
-
 ## The problem
 
 Package authors know their own libraries best. Some package authors now ship an **agent skill**
