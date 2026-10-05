@@ -37,7 +37,6 @@ Within the tool stage:
 8. Publish the successful package. Retain test results and diagnostic logs when a step fails.
 
 All dotnet commands run from the tool folder so SDK selection honors its scoped `global.json`.
-The sample builds with the solution but is not included in the shipping package output.
 PRs do not require the 1ES template repository or any production credential.
 
 ## Package versions
@@ -45,7 +44,7 @@ PRs do not require the 1ES template repository or any production credential.
 The tool project's `VersionPrefix` is the single base-version setting, initially `0.1.0`.
 Local builds use the `dev` suffix. CI computes a version with `Get-PackageVersion.ps1` and
 passes `DotnetPackageSkillsVersion` to both build and pack. This override is consumed only by
-the tool project; it does not change the sample's `2.3.0` version.
+the tool project.
 
 | Run | Example |
 | --- | --- |
@@ -97,7 +96,7 @@ single generated tool `.nupkg`. Tool packing publishes the intermediate assembli
 `obj\Release`, not the copies under `bin\Release`: the signing step first checks that these
 match the tested build outputs, signs the intermediate assemblies, then copies the verified
 signed bytes back to `bin` for final payload comparison. Signing only `bin` would allow pack
-to replace the signed payload. No test/sample assemblies or third-party dependencies are
+to replace the signed payload. No test assemblies or third-party dependencies are
 signed, and strong-name identities are unchanged.
 
 `Verify-Package.ps1 -RequireSigned` requires a NuGet signature, checks `dotnet nuget verify --all`,

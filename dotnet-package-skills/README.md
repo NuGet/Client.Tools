@@ -442,8 +442,6 @@ skills from colliding with another package's skills on the consumer's machine.
 </ItemGroup>
 ```
 
-[`samples/Contoso.Widgets`](samples/Contoso.Widgets) contains a complete, working example.
-
 Every skill must have its own immediate subfolder under `skills/`. The tool does not discover a
 lone `skills/SKILL.md` file.
 

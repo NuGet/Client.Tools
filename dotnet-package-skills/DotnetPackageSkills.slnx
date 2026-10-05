@@ -1,7 +1,4 @@
 <Solution>
-  <Folder Name="/samples/">
-    <Project Path="samples/Contoso.Widgets/Contoso.Widgets.csproj" />
-  </Folder>
   <Folder Name="/src/">
     <Project Path="src/DotnetPackageSkills.csproj" />
   </Folder>

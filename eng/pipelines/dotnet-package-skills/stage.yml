@@ -131,7 +131,7 @@ stages:
           "-p:DotnetPackageSkillsVersion=$(DotnetPackageSkillsVersion)" `
           "-bl:$(DotnetPackageSkillsArtifacts)\logs\restore.binlog"
         if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
-      displayName: Restore tool, samples, and tests
+      displayName: Restore tool and tests
       workingDirectory: $(DotnetPackageSkillsDirectory)
 
     - pwsh: |

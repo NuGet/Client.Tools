@@ -61,7 +61,6 @@ src/
 └── Skills/                 Discovery, copying, version-change removal, the install manifest
 
 tests/                              xunit tests. Application tests use in-process fakes.
-samples/Contoso.Widgets/            An example of a package that ships a skill
 ```
 
 ## Rules that must stay true
