@@ -37,7 +37,7 @@ dotnet-package-skills --version
 
 ## Description
 
-Some NuGet packages include *agent skills*: instructions from the package author that teach coding agents how to use the package. Each skill is a folder that contains a `SKILL.md` file and any supporting files. Restore extracts these folders into the NuGet global packages folder, outside your repository, where agents don't look for them. The `dotnet-package-skills` command copies them into your repository.
+Some NuGet packages include *agent skills*. An agent skill is a set of instructions from the package author that teaches a coding agent how to use the package. Each skill is a folder that contains a `SKILL.md` file and any supporting files. Restore extracts these folders into the NuGet global packages folder. This folder sits outside your repository, where an agent does not look for skills. The `dotnet-package-skills` command copies these folders into your repository.
 
 To install the skills that your packages ship, run these commands from the root of your repository:
 
@@ -46,17 +46,17 @@ dotnet restore
 dotnet-package-skills install
 ```
 
-The skills are copied to `.agents/skills` under the current directory. If your agent reads skills from another folder, add `--destination`, for example `--destination .claude/skills`. If your solution or project isn't in the current directory, pass its path to both commands, for example `dotnet restore src/MyApp.slnx` and `dotnet-package-skills install --target src/MyApp.slnx`. To choose which skills to install, add `--interactive`. Run `install` again after you add or upgrade packages.
+The command copies skills to `.agents/skills` under the current directory. When your agent reads skills from another folder, add `--destination`. For example, add `--destination .claude/skills`. When your solution or project is not in the current directory, pass its path to both commands. For example, run `dotnet restore src/MyApp.slnx` and then `dotnet-package-skills install --target src/MyApp.slnx`. To choose which skills to install, add `--interactive`. Run `install` again after you add a package or upgrade a package.
 
 > [!IMPORTANT]
 > Skills are instructions that your coding agent follows. Review them before you rely on them.
 
-The command reads only the direct package references of your solution or project, not the packages that they depend on. It doesn't download packages or change your project files.
+The command reads only the direct package references of your solution or project. It does not read the packages that those packages depend on. The command does not download a package, and it does not change your project files.
 
 This article uses these terms:
 
 - **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. Reports show the target after `Target:`.
-- **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. Reports show it after `Destination:`.
+- **Skills folder**: the folder that the command copies skills to. This is `.agents/skills` under the current directory, unless you specify `--destination`. `--target` does not change this folder. A report shows this folder after `Destination:`.
 - **Tracked skill**: a skill that the command installed, as recorded in the [manifest](#manifest-file) in the skills folder. The command updates and removes only tracked skills, never folders that you created.
 - **Stale skill**: a tracked skill whose package the target no longer references at the version that the skill came from.
 
@@ -77,15 +77,15 @@ Found 4 skills:
   fabrikam.testing-fixtures (Fabrikam.Testing 1.4.0)
 ```
 
-`NuGet cache` is the NuGet global packages folder that skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder, so it doesn't show which skills are installed; the [manifest](#manifest-file) records those.
+`NuGet cache` names the NuGet global packages folder that the command reads skills from. `Destination` names the skills folder that `install` would copy them to. `list` does not look in the skills folder, so it does not show which skills are installed. The [manifest](#manifest-file) records that information instead.
 
-Restore the target before you run the command. The command doesn't run `dotnet restore` itself, although with the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global packages folder, `list` skips the package and `install` stops.
+Restore the target before you run the command. The command does not run `dotnet restore` on its own. With the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. When `dotnet list package` fails, the command shows what it reported, and it changes nothing. Fix the problem, for example by restoring the target, and then run the command again. When a package that the target references is not in the NuGet global packages folder, `list` skips that package, and `install` stops.
 
-To read skills from specific packages instead of a target, specify `--package <ID>@<VERSION>`. The package must already be in the NuGet global packages folder, because the command doesn't download it. If the package isn't there, the command finds no skills in it and doesn't warn you.
+To read skills from specific packages instead of a target, specify `--package <ID>@<VERSION>`. The package must already be in the NuGet global packages folder, because the command does not download it. When the package is not there, the command finds no skills in it, and it shows no warning.
 
 ### Install and update skills
 
-`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. After the same first lines as the `list` report, the report lists the skills that were copied:
+`dotnet-package-skills install` copies the target's skills into the skills folder, and it records them in the manifest. Each skill keeps its folder name from the package. The report starts with the same first lines as the `list` report. Then it lists the skills that the command copied:
 
 ```output
 Copied 4 skills:
@@ -97,7 +97,7 @@ Copied 4 skills:
 These skills are instructions written by the package authors, and your coding agent will follow them. Review them before relying on them.
 ```
 
-Run `install` again whenever your packages change; there's no separate update command. Each run compares the tracked skills with the target's packages:
+Run `install` again whenever your packages change. There is no separate update command. Each run compares the tracked skills with the target's packages:
 
 | If you've... | `install`... |
 | --- | --- |
@@ -114,17 +114,17 @@ Run 'dotnet-package-skills uninstall --stale' to remove them.
 ```
 
 > [!WARNING]
-> `install` replaces the whole folder of each skill that it copies, including your edits and any files that you added. Keep your own instructions in separate skill folders; the command never changes folders that it didn't install.
+> `install` replaces the whole folder of each skill that it copies. This includes your edits and any files that you added. Keep your own instructions in separate skill folders. The command never changes a folder that it did not install.
 
-With `--package`, `install` does the same for the packages that you name, and leaves all other skills alone. With `--interactive`, it only adds the skills that you choose; see [Choose skills interactively](#choose-skills-interactively). To preview an installation, add `--dry-run`. The report then lists the planned changes under `Would copy` and `Would remove`, and nothing changes.
+With `--package`, `install` does the same thing for the packages that you name, and it leaves every other skill alone. With `--interactive`, it adds only the skills that you choose. See [Choose skills interactively](#choose-skills-interactively). To preview an installation, add `--dry-run`. The report then lists the planned changes under `Would copy` and `Would remove`, and the command changes nothing.
 
 The skills folder holds the skills of only one version of each package. If the target references a package at more than one version, or `--package` names more than one, `install` stops and names the versions. [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) keeps all the projects in a repository on one version of each package.
 
-Skill names are compared without regard to case. If two packages ship a skill with the same name, only one of them is copied. `install` also never replaces a tracked skill with another package's skill, or overwrites a folder that it didn't install. It skips such skills, and lists them in the report under `Warning:`. To give a skill name to another package, first remove the tracked skill, for example with `uninstall --package <ID>`.
+Skill names are compared without regard to case. When two packages ship a skill with the same name, the command copies only one of them. `install` also never replaces a tracked skill with another package's skill, and it never overwrites a folder that it did not install. It skips such a skill, and it lists that skill in the report under `Warning:`. To give a skill name to another package, first remove the tracked skill, for example with `uninstall --package <ID>`.
 
 ### Remove skills
 
-`dotnet-package-skills uninstall` removes every tracked skill from the skills folder. It doesn't remove folders that you created or any NuGet packages, and it doesn't need a target. If you installed skills into another folder, specify the same `--destination`.
+`dotnet-package-skills uninstall` removes every tracked skill from the skills folder. It does not remove a folder that you created, and it does not remove any NuGet package. It does not need a target. When you installed skills into another folder, specify the same `--destination`.
 
 ```output
 Destination: C:\src\MyApp\.agents\skills
@@ -152,7 +152,7 @@ Skills that you installed with `install --package` are stale unless the target r
 
 ### Choose skills interactively
 
-Add `--interactive` (`-i`) to choose skills in a paged checklist. `install -i` lists the skills that aren't installed yet, and `uninstall -i` lists the tracked skills, or with `--stale`, only the stale ones. Nothing starts checked. The following example shows an install checklist after one skill is checked:
+Add `--interactive` (`-i`) to choose skills in a paged checklist. `install -i` lists the skills that are not installed yet. `uninstall -i` lists the tracked skills, or with `--stale`, only the stale skills. Nothing starts checked. The following example shows an install checklist after you check one skill:
 
 ```output
 Which skills should be installed? (MyApp.slnx)
@@ -178,16 +178,16 @@ Each row shows a skill's name and the `description` from its `SKILL.md` file. `>
 | Home, End | Go to the first or last skill. |
 | Space | Check or uncheck the focused skill. |
 | A, C | Check or clear all skills, on every page. |
-| Ctrl+Up, Ctrl+Down | Scroll a description that's too long for the page. |
+| Ctrl+Up, Ctrl+Down | Scroll a description that is too long for the page. |
 | Enter | Install or remove the checked skills. With `--dry-run`, only report what would change. |
 | Esc, Q, Ctrl+C | Cancel without changing any skills. |
 
-`install -i` only adds the skills that you check; it never updates or removes skills. Because of that, it first checks that the tracked skills match the packages, and stops before the checklist opens if they don't:
+`install -i` adds only the skills that you check. It never updates a skill, and it never removes a skill. Because of this, it first checks that the tracked skills match the packages. It stops before the checklist opens if they do not match:
 
 - With a target, it stops if any tracked skill is stale. Run `uninstall --stale`, and then try again.
 - With `--package`, it stops if a named package is installed at another version. Run `uninstall --package <ID>` first, or run `install --package` without `--interactive` to switch versions.
 
-Skills that `install` would skip because their name is in use aren't listed; the report after the checklist names them. If every skill is already installed, the checklist doesn't open, and the command reports `Nothing new to install.`
+The checklist does not list a skill that `install` would skip because its name is in use. The report after the checklist names that skill instead. When every skill is already installed, the checklist does not open, and the command reports `Nothing new to install.`
 
 ### Manifest file
 
@@ -215,27 +215,27 @@ The manifest, `.dotnet-package-skills.json` in the skills folder, records the sk
 | `packages.<id>.version` | The package version that the skills were installed from. |
 | `packages.<id>.skills` | The names of the skill folders installed from the package. |
 
-If you commit the skills folder to source control, commit the manifest with it. The command writes the file the same way on every platform, in UTF-8 with LF line endings and a stable order, so it doesn't cause line-ending churn. Don't edit the file by hand: the command relies on it to decide which folders it can replace or remove, and drops properties that it doesn't recognize when it rewrites the file. When the last tracked skill is removed, the command deletes the manifest, and the skills folder if it's empty.
+If you commit the skills folder to source control, commit the manifest with it. The command writes the file the same way on every platform. It uses UTF-8 encoding, LF line endings, and a stable order, so the file does not cause line-ending differences between checkouts. Do not edit the file by hand. The command relies on the file to decide which folders it can replace or remove. The command also drops a property that it does not recognize when it rewrites the file. When the last tracked skill is removed, the command deletes the manifest. It also deletes the skills folder, if that folder is empty.
 
-### Exit codes and troubleshooting
+### Exit codes and common problems
 
-The command returns `0` on success, including when there's nothing to do or you cancel a checklist, and `1` on failure. Errors are written to standard error. Skipped skills are reported as warnings and don't change the exit code, so check the report when it matters that every skill was installed. Reports are meant for people: scripts should rely on the exit code, and read the manifest to find the installed skills.
+The command returns `0` on success. This includes when there is nothing to do, and when you cancel a checklist. The command returns `1` on failure. An error is written to standard error. A skipped skill is reported as a warning, and a warning does not change the exit code. Check the report when it matters that every skill was installed. Reports exist for people to read. A script must rely on the exit code instead, and it must read the manifest to find the installed skills.
 
 Each of these errors stops the command before it changes any skills or the manifest:
 
 | Problem | What to do |
 | --- | --- |
-| `dotnet list package` fails, for example because the target isn't restored. | Fix what it reports, for example by running `dotnet restore`, and then run the command again. |
+| `dotnet list package` fails, for example because the target is not restored. | Fix what it reports, for example by running `dotnet restore`, and then run the command again. |
 | `install` reports packages that are missing from the NuGet global packages folder. | Restore the target into that folder, and then run `install` again. If you use `--global-packages`, restore into the same folder, for example with `dotnet restore --packages <PATH>`. |
 | The target references a package at more than one version, or `--package` names more than one. | Align the versions, for example with [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management). With `--package`, name one version of each package. |
-| `install --interactive` says that installed skills don't match the target, or that a named package is installed at another version. | Run the `uninstall` command that the error suggests, and then try again. To switch a package to another version instead, run `install` without `--interactive`. |
-| The manifest can't be read. | Resolve any merge conflict in `.dotnet-package-skills.json`, or restore the file from source control. If the error says that the manifest uses a newer format version, update the tool. If it says that a pre-release version of the tool wrote the manifest, move the skills folder aside, and then run `install` again. |
+| `install --interactive` says that installed skills do not match the target, or that a named package is installed at another version. | Run the `uninstall` command that the error suggests, and then try again. To switch a package to another version instead, run `install` without `--interactive`. |
+| The manifest cannot be read. | Resolve any merge conflict in `.dotnet-package-skills.json`, or restore the file from source control. If the error says that the manifest uses a newer format version, update the tool. If it says that a pre-release version of the tool wrote the manifest, move the skills folder aside, and then run `install` again. |
 | Another run of the command is using the skills folder. | The command waits up to 30 seconds for the other run to finish, and then stops. Run the command again after the other run finishes. |
 | The terminal is too small for the checklist. | Enlarge the window, or run the command without `--interactive`. |
 
 For other errors, run the command that the error suggests. Suggested commands repeat the `--target` and `--destination` that you specified, so you can run them as printed.
 
-If a file system error interrupts a copy or removal, the command reports it but doesn't undo the changes that it already made, and copied folders might be missing from the manifest. Move the affected skill folders aside, and then run the command again.
+When a file system error interrupts a copy or removal, the command reports that error, but it does not undo the changes that it already made. A copied folder might then be missing from the manifest. Move the affected skill folders aside, and then run the command again.
 
 ## Commands
 
@@ -263,7 +263,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`--global-packages <PATH>`**
 
-  For `install` and `list`, specifies the NuGet global packages folder to read packages from. The folder must exist. This option overrides the `NUGET_PACKAGES` environment variable and the folder configured for NuGet, but it doesn't change where restore extracts packages. Unlike `--destination`, a relative path is resolved from the target's directory, or from the current directory when you use `--package`.
+  For `install` and `list`, specifies the NuGet global packages folder to read packages from. The folder must exist. This option overrides the `NUGET_PACKAGES` environment variable and the folder that NuGet is configured to use, but it does not change where restore extracts packages. Unlike `--destination`, the command resolves a relative path from the target's directory, or from the current directory when you use `--package`.
 
 - **`-?|-h|--help`**
 
@@ -271,23 +271,23 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`-i|--interactive`**
 
-  For `install` and `uninstall`, opens a checklist for choosing the skills to install or remove. `install` lists only skills that aren't installed, and only adds skills. Requires a terminal when there's something to choose. Can be combined with `--dry-run`, and with either `--package` or, for `uninstall`, `--stale`. For more information, see [Choose skills interactively](#choose-skills-interactively).
+  For `install` and `uninstall`, opens a checklist for choosing the skills to install or remove. `install` lists only skills that are not installed, and it only adds skills. This option needs a terminal when there is something to choose. You can combine it with `--dry-run`, and with either `--package` or, for `uninstall`, `--stale`. For more information, see [Choose skills interactively](#choose-skills-interactively).
 
 - **`-p|--package <ID@VERSION>`**
 
-  For `install` and `list`, reads skills from the specified package instead of a target. Specify an exact version, such as `Contoso.Widgets@2.3.0`; floating versions and version ranges aren't accepted. Repeat the option to name several packages. Duplicates, such as `Mockly@1.10` and `Mockly@1.10.0`, count once. `install` accepts only one version of each package, while `list` shows every version that you name. The package must already be in the NuGet global packages folder; if it isn't, the command finds no skills in it and doesn't warn you. Can't be combined with `--target`.
+  For `install` and `list`, reads skills from the specified package instead of a target. Specify an exact version, such as `Contoso.Widgets@2.3.0`. The command does not accept a floating version or a version range. Repeat the option to name several packages. A duplicate, such as `Mockly@1.10` and `Mockly@1.10.0` named together, counts once. `install` accepts only one version of each package. `list` shows every version that you name. The package must already be in the NuGet global packages folder. If it is not there, the command finds no skills in it, and it shows no warning. You cannot combine this option with `--target`.
 
 - **`-p|--package <ID[@VERSION]>`**
 
-  For `uninstall`, removes only the skills of the specified package. With a version, removes them only if that version is installed. Package IDs are compared without regard to case, and `1.10` matches `1.10.0`. Specify the option at most once; a blank value is an error. Can't be combined with `--stale`.
+  For `uninstall`, removes only the skills of the specified package. With a version, removes them only if that version is installed. The command compares package IDs without regard to case, and `1.10` matches `1.10.0`. Specify this option at most once. A blank value is an error. You cannot combine this option with `--stale`.
 
 - **`--stale`**
 
-  For `uninstall`, removes only stale skills. Requires a target. Can be combined with `--target`, `--dry-run`, and `--interactive`, but not with `--package`. For more information, see [Remove stale skills](#remove-stale-skills).
+  For `uninstall`, removes only stale skills. This option requires a target. You can combine it with `--target`, `--dry-run`, and `--interactive`, but not with `--package`. For more information, see [Remove stale skills](#remove-stale-skills).
 
 - **`-t|--target <PATH>`**
 
-  For `install`, `list`, and `uninstall --stale`, specifies the solution (`.slnx` or `.sln`), project (`.csproj`, `.fsproj`, or `.vbproj`), or directory to read package references from. For a directory, or when the option is omitted, the command looks for a solution or project in that directory, and then in its subdirectories. Doesn't change the skills folder. Can't be combined with `--package`.
+  For `install`, `list`, and `uninstall --stale`, specifies the solution (`.slnx` or `.sln`), project (`.csproj`, `.fsproj`, or `.vbproj`), or directory to read package references from. For a directory, or when you omit the option, the command looks for a solution or project in that directory, and then in its subdirectories. It does not change the skills folder. You cannot combine it with `--package`.
 
 - **`--version`**
 

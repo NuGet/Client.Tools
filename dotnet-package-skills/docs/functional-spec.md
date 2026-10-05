@@ -8,7 +8,8 @@ It copies whole skill folders, including supporting documents, from the NuGet ca
 
 The default destination is `.agents\skills` under the directory where the command runs. Developers can choose another destination, such as `.claude\skills`. Agent support for a destination remains the agent's responsibility.
 
-Examples below use illustrative packages and paths. Interactive page sizes and line wrapping vary with the terminal dimensions; the examples are not fixed screen layouts.
+The examples below use made-up packages and paths. Interactive page sizes and line wrapping both
+vary with the terminal's dimensions. The examples are not fixed screen layouts.
 
 ## 2. Command structure
 
@@ -28,7 +29,7 @@ There are three subcommands. Interactive selection, previews, and stale cleanup 
 | `--help` | Learn the commands and options. | No changes. |
 | `--version` | Identify the tool build. | No changes. |
 
-The tool requires a compatible .NET runtime; current builds target .NET 8 and .NET 10. Project discovery also uses the installed .NET SDK.
+The tool requires a compatible .NET runtime. Current builds target .NET 8 and .NET 10. Project discovery also uses the installed .NET SDK.
 
 Installing the .NET tool itself is separate from installing skills. For evaluation with a supplied local tool package:
 
@@ -70,7 +71,7 @@ Version output starts with `0.1.0` and may include build metadata after `+`.
 dotnet-package-skills list
 ```
 
-The tool runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on a solution or project to find its top-level package references, and then looks for immediate subfolders of each package's `skills` directory that contain `SKILL.md`. Without `--target`, it uses a solution or project from the current directory or one of its subdirectories; the chosen path appears in `Target:`. Name a target when that choice matters.
+The tool runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on a solution or project to find its top-level package references. It then looks for an immediate subfolder of each package's `skills` directory that contains `SKILL.md`. Without `--target`, the tool uses a solution or project from the current directory, or from one of its subdirectories. The chosen path appears after `Target:`. Name a target when that choice matters.
 
 Sample output:
 
@@ -99,7 +100,7 @@ dotnet-package-skills list --package Contoso.Widgets@2.3.0
 
 An explicit package must already be extracted in the selected NuGet cache. Naming it does not download it or add it to a project. Such reports use `Target: (packages named on the command line)` and `Scanned N packages (named explicitly)`.
 
-The cache directory itself must already exist. If it is absent, restore the project first. `list` skips packages that aren't extracted in the selected cache, without reporting them. When projects resolve different versions of one package, `list` shows each version; `install` refuses to proceed until they're aligned (section 4). `list` does not read destination ownership, so its first discovery candidate can differ from the owner-preferred candidate used by `install`.
+The cache directory itself must already exist. If it is absent, restore the project first. `list` skips a package that is not extracted in the selected cache, and it reports no warning for that package. When projects resolve different versions of one package, `list` shows each version. `install` refuses to proceed until you align those versions (section 4). `list` does not read destination ownership. Because of this, its first discovery candidate can differ from the owner-preferred candidate that `install` uses.
 
 ## 4. Install or refresh skills: `install`
 
@@ -125,10 +126,10 @@ These skills are instructions written by the package authors, and your coding ag
 
 | Scope | Behavior |
 | --- | --- |
-| Any noninteractive run | Refresh the skills of the packages found in the cache. When a package's version differs from the version the manifest records, refresh its skills and remove its installed skills that the new version doesn't ship. A package at the same version never loses a skill. Paths protected by an ownership conflict are retained. |
+| Any noninteractive run | Refresh the skills of the packages found in the cache. When a package's version differs from the version that the manifest records, refresh its skills, and remove its installed skills that the new version does not ship. A package at the same version never loses a skill. The tool retains a path that an ownership conflict protects. |
 | Target | Keep the installed skills of packages the target no longer references, and list them with a pointer to `uninstall --stale` (section 6). |
 | `--package` | Touch only the named packages. Other installed skills are left in place without comment. |
-| Interactive install | Only add skills that aren't installed (section 5). Never refresh or remove. |
+| Interactive install | Add only the skills that are not installed (section 5). Never refresh a skill, and never remove a skill. |
 | A different package claims an installed name | Preserve the existing owner and skip the conflicting copy with a warning in every mode. If the run also supplies the current owner's candidate, refresh that candidate rather than letting the conflict block it. Replacement requires an explicit uninstall first. |
 | The owner's package moves to a version that no longer ships that name | Stop before any change, including with `--dry-run`. Removing the old copy would hand the name to the other package, and keeping it would record the old version's copy under the new version. The error suggests `uninstall --package <ID>` for the owner. |
 
@@ -211,9 +212,9 @@ Blue X: selected
 
 ### Selection rules
 
-- The checklist lists only skills that would install cleanly and aren't installed. Nothing starts checked. The line under the title says that installed skills aren't listed.
-- Acceptance copies only the checked skills. An interactive install never refreshes or removes a skill; refreshing is what a noninteractive `install` does, and removal is what `uninstall` does.
-- Candidates that would be skipped, such as a name owned by another package or used by an untracked folder, aren't listed. The final report names them under the skipped warning.
+- The checklist lists only skills that would install cleanly and that are not installed. Nothing starts checked. The line under the title states that installed skills are not listed.
+- Acceptance copies only the checked skills. An interactive install never refreshes a skill, and it never removes a skill. A noninteractive `install` refreshes a skill, and `uninstall` removes a skill.
+- The checklist does not list a candidate that the tool would skip, for example a name that another package owns, or a name that an untracked folder uses. The final report names these candidates under the skipped warning.
 - When every discovered skill is already installed, the command prints the following and exits with code `0` without opening the checklist. When some candidates were skipped, only the first sentence is printed, followed by the skipped warning.
 
   ```text
@@ -233,7 +234,7 @@ A skill is **stale** when the target no longer references its package, or refere
 
 ### Presentation
 
-- The format is always `skill-name - description`, without a package/version suffix or a separate description column. Authored package prefixes in skill names remain intact. Long display names may be clipped with `...`; their canonical identities are unchanged.
+- The format is always `skill-name - description`. There is no package or version suffix, and there is no separate description column. Authored package prefixes in a skill name remain intact. The tool may clip a long display name with `...`. A clipped name's canonical identity stays unchanged.
 - Descriptions wrap beneath the skill text with a small list indent, using the available width. Page sizes reflect rendered lines, not a fixed number of skills. A list that fits needs no paging.
 - Live resizing recalculates wrapping and pagination while preserving focus and selection. Oversized descriptions can be scrolled while their skill row remains visible.
 - The note under the title is omitted when the window is too small to fit it, rather than failing.
@@ -244,12 +245,12 @@ The live checklist is displayed at the top of a temporary terminal screen, separ
 | --- | --- |
 | Blue row text | Keyboard focus, including the skill name and wrapped description lines. |
 | Blue `X` | Checked item: install in the install picker, or remove in the uninstall picker. Each picker does one thing, so a checked row looks the same in both, and the title and summary say what a check does. |
-| Normal name/description text | Item is not focused; selection does not change the color of its name or brackets. |
+| Normal name/description text | The item is not focused. Selection does not change the color of its name or its brackets. |
 | `>` and `[X]` when color is disabled | Focus and checked state, with no other marker and no color legend. `NO_COLOR` is honored. |
 
 | Key | Behavior |
 | --- | --- |
-| Up / Down | Move between skills; wrap at the beginning/end. |
+| Up / Down | Move between skills. Wrap at the beginning or the end. |
 | Left / Right or PageUp / PageDown | Move between pages. |
 | Home / End | Go to the first/last skill. |
 | Space | Toggle the focused skill. |
@@ -299,7 +300,7 @@ dotnet-package-skills uninstall --interactive
 dotnet-package-skills uninstall --stale
 ```
 
-A bare package ID matches the package's tracked skills; `ID@VERSION` matches them only if that version is the one installed. The manifest records one version per package, so there is never more than one to choose from. Both modes use the same case-insensitive package matching and normalized version comparison: for example, `1.10` matches `1.10.0`. An explicitly blank, whitespace-only, or missing filter value is an error, never an instruction to remove everything. Uninstall accepts the package option only once; repeated occurrences and aliases are rejected even if the final value is absent. Only omitting `--package` means no filter. A dry run reports `Would remove` and preserves the files.
+A bare package ID matches the package's tracked skills. `ID@VERSION` matches them only if that version is the one installed. The manifest records one version for each package, so there is never more than one version to choose from. Both modes use the same case-insensitive package matching and the same normalized version comparison. For example, `1.10` matches `1.10.0`. An explicitly blank, whitespace-only, or missing filter value is an error. It never means an instruction to remove everything. `uninstall` accepts the package option only once. It rejects a repeated occurrence or an alias, even when the final value is absent. Only a completely omitted `--package` means no filter. A dry run reports `Would remove`, and it leaves the files in place.
 
 The interactive picker lists only manifest-owned skills and reads descriptions from their installed copies. Nothing starts checked. A check means removal, not retention:
 
@@ -358,8 +359,8 @@ Destination: C:\src\MyApp\.agents\skills
 Nothing to remove. No stale skills were found.
 ```
 
-- `--stale` reads the target's package references, so it requires a solution or project, found as in section 3 or named with `--target`. Without one, it fails with `No solution or project found under ...`. Like `install` and `list`, it runs `dotnet list package`, which the .NET SDK can restore the target for; when that fails, the command stops and shows what it reported.
-- It needs only the target's package references, not the packages, so it doesn't look in the NuGet cache for skills.
+- `--stale` reads the target's package references, so it requires a solution or project. The tool finds this target the same way as in section 3, or you name it with `--target`. Without a target, the command fails with `No solution or project found under ...`. Like `install` and `list`, `--stale` runs `dotnet list package`. The .NET SDK can restore the target during that step. When the step fails, the command stops, and it shows what it reported.
+- `--stale` needs only the target's package references, not the packages themselves. Because of this, it does not look in the NuGet cache for skills.
 - It works when the target resolves more than one version of a package: a skill is stale only if no project references its installed version.
 - With `--interactive`, only stale skills are listed, under the note `Only skills that don't match the target are listed.`
 - `--stale` cannot be combined with `--package`. `--target` is accepted by `uninstall` only together with `--stale`.
@@ -368,20 +369,20 @@ Nothing to remove. No stale skills were found.
 
 | Option | Applies to | Contract |
 | --- | --- | --- |
-| `-t, --target <PATH>` | `list`, `install`; `uninstall` with `--stale` | Solution, project, or directory to search. Supported files: `.slnx`, `.sln`, `.csproj`, `.fsproj`, `.vbproj`. Defaults to discovery from the current directory. |
-| `-p, --package <ID@VERSION>` | `list`, `install` | Exact package coordinates instead of a target. Repeatable, with one version per package; equivalent repeated coordinates are deduplicated. Floating versions and ranges are rejected. |
+| `-t, --target <PATH>` | `list` and `install` always. `uninstall` only with `--stale`. | Solution, project, or directory to search. Supported files: `.slnx`, `.sln`, `.csproj`, `.fsproj`, `.vbproj`. Defaults to discovery from the current directory. |
+| `-p, --package <ID@VERSION>` | `list`, `install` | Exact package coordinates instead of a target. Repeatable, with one version for each package. The tool removes a duplicate when you repeat an equivalent coordinate. The tool rejects a floating version and a version range. |
 | `-p, --package <ID[@VERSION]>` | `uninstall` | One occurrence of a nonempty package filter, optionally restricted to a normalized version. Same matching in both modes. |
-| `-d, --destination <PATH>` | All three | Skills destination; default `.agents\skills`. Uninstall must use the same destination used for installation. |
+| `-d, --destination <PATH>` | All three | The skills destination. Default `.agents\skills`. `uninstall` must use the same destination that installation used. |
 | `--global-packages <PATH>` | `list`, `install` | Existing extracted-package cache to use. Overrides `NUGET_PACKAGES` and the NuGet-configured cache. |
 | `--dry-run` | `install`, `uninstall` | Report planned destination changes without applying them. |
-| `-i, --interactive` | `install`, `uninstall` | Open the paginated picker. On install, only skills that aren't installed are listed, and accepting only adds. On uninstall, checked skills are removed. Requires a terminal when there are rows to choose. |
+| `-i, --interactive` | `install`, `uninstall` | Opens the paginated picker. On `install`, the picker lists only skills that are not installed, and accepting only adds them. On `uninstall`, accepting removes the checked skills. This option needs a terminal when there are rows to choose from. |
 | `--stale` | `uninstall` | Remove only stale skills: those whose package the target no longer references, or references at a different version. Requires a solution or project. |
 | `-?, -h, --help` | Root and all three | Display usage and supported options. |
 | `--version` | Root | Display version information. |
 
-**Combination rules:** `--target` cannot be combined with `--package`. `--stale` cannot be combined with `--package`, and `uninstall` accepts `--target` only with `--stale`. Interactive selection can be combined with `--dry-run`, package filters, and `--stale`. `list` has neither `--interactive` nor `--dry-run`. No command has a JSON output option or a restore option; `--json` and `--no-restore` are rejected as unrecognized arguments.
+**Combination rules:** You cannot combine `--target` with `--package`. You cannot combine `--stale` with `--package`, and `uninstall` accepts `--target` only together with `--stale`. You can combine interactive selection with `--dry-run`, with a package filter, and with `--stale`. `list` has neither `--interactive` nor `--dry-run`. No command has a JSON output option or a restore option. The tool rejects `--json` and `--no-restore` as unrecognized arguments.
 
-**Path rule:** a relative destination is based on the invocation directory, not automatically on the directory containing `--target`. A relative `--global-packages` override is resolved from the target's directory in target mode and the invocation directory in named-package mode. That override selects the read cache; it does not reconfigure NuGet restore.
+**Path rule:** The tool bases a relative destination on the invocation directory. It does not automatically base the destination on the directory that contains `--target`. The tool resolves a relative `--global-packages` override from the target's directory in target mode, and from the invocation directory in named-package mode. That override selects the cache that the tool reads from. It does not reconfigure NuGet restore.
 
 ## 8. Ownership manifest
 
@@ -405,11 +406,11 @@ The destination's `.dotnet-package-skills.json` records what the tool installed.
 | Element | Required | Contract |
 | --- | --- | --- |
 | `version` | Yes | Format version, a whole number. This release reads and writes `1`. |
-| `packages` | Yes | Object keyed by package ID. The tool writes lowercase IDs; IDs are matched case-insensitively, and two keys that differ only in case are invalid. |
+| `packages` | Yes | An object keyed by package ID. The tool writes a lowercase ID. The tool matches an ID without regard to case, so two keys that differ only in case are invalid. |
 | `packages.<id>.version` | Yes | The one package version the skills were installed from, normalized as NuGet does (`1.10` is written `1.10.0`). |
 | `packages.<id>.skills` | Yes | Skill folder names directly under the destination that this package owns. Each name is claimed once across the whole manifest. |
 
-Writing rules: UTF-8 without a byte order mark, two-space indentation, LF line endings with a final newline on every platform, packages and skills in a stable order. A repository can commit the file without line-ending churn between Windows and Unix checkouts. Properties the tool doesn't recognize are ignored when reading and are not preserved when the file is rewritten.
+Writing rules: The tool uses UTF-8 encoding without a byte order mark. It uses two-space indentation. It uses LF line endings, with a final newline, on every platform. It lists packages and skills in a stable order. A repository can commit this file without line-ending differences between a Windows checkout and a Unix checkout. The tool ignores a property that it does not recognize when it reads the file. It does not preserve that property when it rewrites the file.
 
 Reading rules:
 
@@ -417,7 +418,7 @@ Reading rules:
 - A manifest written by a pre-release build of the tool, which has an `installed` array and no `packages` object, is not converted. The tool asks the user to move the skills folder aside and install again.
 - Other damage, such as a merge conflict, a missing `version` or `packages`, an invalid package ID, a package without a version, a duplicate claim, or an unsafe skill name, fails as described in section 9.
 
-Scripts should rely on exit codes and read this file for what's installed. The human-readable reports are for people and can change between releases.
+A script must rely on exit codes, and it must read this file to find what is installed. The reports exist for people to read, and their wording can change between releases.
 
 Human-readable reports and diagnostics, including argument-validation errors and parser suggestions, remove terminal escape sequences and unsafe control characters from metadata, paths, and diagnostic text. This affects presentation only: arguments are validated as supplied, and stored identities remain unchanged.
 
@@ -427,29 +428,29 @@ Human-readable reports and diagnostics, including argument-validation errors and
 | --- | --- |
 | No package ships a discoverable skill | Successful report: `No bundled skills found.` |
 | Skills exist but none are accepted | Report `Copied no skills.` or `Would copy no skills.`, with any skipped-item details. |
-| Every discovered skill is already installed (`install -i`) | `Nothing new to install.`, with the explanation or the skipped warning; no checklist; exit code `0`. |
+| Every discovered skill is already installed (`install -i`) | The command prints `Nothing new to install.`, with the explanation or the skipped warning. It opens no checklist. Exit code `0`. |
 | A resolved package is absent from the cache | A target-based `install` fails before changes, in every mode. `list` skips it silently. With `--package`, it contributes no skills. `uninstall --stale` is unaffected. |
-| Packages resolve to more than one version | Every `install` mode fails before changes and names the versions to align. `list` shows each version; `uninstall --stale` still works. |
-| A package left the target | `install` keeps its skills and lists them with a pointer to `uninstall --stale`. `install -i` fails until they're removed. |
-| A package moved to a new version | `install` refreshes its skills and removes the ones the new version doesn't ship. `install -i` fails with a target (the skills are stale) and with `--package` (another version is installed). |
+| Packages resolve to more than one version | Every `install` mode fails before changes, and it names the versions that you need to align. `list` shows each version. `uninstall --stale` still works. |
+| A package left the target | `install` keeps its skills and lists them with a pointer to `uninstall --stale`. `install -i` fails until they are removed. |
+| A package moved to a new version | `install` refreshes its skills, and it removes the ones that the new version does not ship. `install -i` fails with a target, because the skills are stale, and it fails with `--package`, because another version is installed. |
 | A destination name conflicts with another skill, an untracked folder, or a different installed owner | Warn and skip the conflicting copy. Preserve the current owner, including when the run leaves its package out. |
 | The owner's new version drops a skill that another package in the run ships | `install` fails before changes and suggests `uninstall --package <ID>` for the owner (section 4). |
-| A package filter is explicitly blank or missing its value | Fail; never broaden a selective uninstall to all tracked skills. |
-| `uninstall --stale` finds no solution or project | Fail with `No solution or project found under ...`; nothing is removed. |
+| A package filter is explicitly blank or missing its value | Fails. Never broadens a selective uninstall to all tracked skills. |
+| `uninstall --stale` finds no solution or project | Fails with `No solution or project found under ...`. Removes nothing. |
 | The ownership manifest is absent | Existing folders are not assumed to belong to the tool. |
-| The ownership manifest is unreadable, malformed, or unsafe | Fail before modifying destination skills; preserve the manifest and explain how to repair/restore it. Missing `version` or `packages`, duplicate JSON properties (including case variants), invalid package IDs, packages without a version, duplicate case-insensitive skill claims, and unsafe skill folder names are invalid. Names ending in a dot or space, including `...`, are rejected because Windows can resolve them to another folder or the destination itself. This also applies to interactive and dry-run modes. `list` remains available. |
+| The ownership manifest is unreadable, malformed, or unsafe | Fails before it changes any destination skill. Preserves the manifest, and explains how to repair it or restore it. A missing `version` or `packages` property is invalid. A duplicate JSON property, including a case variant, is invalid. An invalid package ID is invalid. A package without a version is invalid. A duplicate case-insensitive skill claim is invalid. An unsafe skill folder name is invalid. The tool rejects a name that ends in a dot or a space, including the name `...`, because Windows can resolve such a name to a different folder or to the destination folder itself. This rule also applies to interactive mode and dry-run mode. `list` remains available. |
 | The manifest has a newer format version | Fail before changes and ask the user to update the tool. |
 | The manifest was written by a pre-release build | Fail before changes and ask the user to move the skills folder aside and install again. |
 | `dotnet list package` fails, for example because the restore it runs fails, or an earlier SDK says the target needs restoring | Stop before changes with exit code `1`, show the problems it reported, and ask the user to resolve them and run the command again. The tool never restores. |
 | Invalid option combination, missing target, failed restore, or filesystem error | Report an actionable error and return a non-zero exit code. |
 
-The manifest is written after a successful installation or removal, not by `list`, a cancelled picker, or a dry run. Removing the last tracked entry deletes the manifest. The destination folder is deleted only if it is empty; hand-written skills keep that folder alive. Removing a tracking entry is reported even when its skill folder had already been deleted.
+The tool writes the manifest after a successful installation or removal. It does not write the manifest after `list`, a cancelled picker, or a dry run. Removing the last tracked entry deletes the manifest. The tool deletes the destination folder only if that folder is empty. A hand-written skill keeps the folder alive. The tool reports the removal of a tracking entry even when its skill folder was already deleted.
 
 Cooperating tool processes serialize reads and changes for a destination. Ownership is loaded and checked inside that critical section, which remains held through copying, removal, and manifest persistence. A busy destination produces retry guidance rather than overlapping mutations. This is local-process coordination, not a distributed filesystem transaction. Equivalent Windows path spellings share that coordination. If a destination alias changes while an operation waits for access, the operation fails before modifying the newly resolved location.
 
-Successful operations, empty results, and cancellation return exit code `0`. Command failures return `1`. Warnings/skipped skills can still accompany exit code `0`; automation should inspect the report when completeness matters.
+A successful operation, an empty result, and a cancellation all return exit code `0`. A command failure returns exit code `1`. A warning or a skipped skill can still accompany exit code `0`. Automation must inspect the report when completeness matters.
 
-Skill metadata is not a security review of the instructions. Developers remain responsible for deciding what their agent should trust. Unexpected filesystem failures are reported, but transactional rollback of a partially completed copy/removal is not provided in this version. Such failures can leave copied folders absent from the manifest. Restore a verified backup or move affected folders aside before retrying; do not blindly delete untracked guidance.
+Skill metadata is not a security review of the skill's instructions. A developer remains responsible for deciding what their agent can trust. The tool reports an unexpected file system failure, but this version does not provide a transactional rollback of a partially completed copy or removal. Such a failure can leave a copied folder absent from the manifest. Restore a verified backup, or move the affected folders aside, before you retry. Do not delete untracked guidance without first checking what it is.
 
 ## 10. Product review checklist
 
@@ -458,16 +459,16 @@ Skill metadata is not a security review of the instructions. Developers remain r
 | Discover before deciding | `list` shows available skills without installing them. |
 | Try the picker safely | `install -i --dry-run` previews a selection without writing skills or a manifest. |
 | Make an informed choice | Read descriptions, navigate pages, select skills, and accept. |
-| Add a few more skills later | `install -i` lists only skills that aren't installed; accepting adds them and changes nothing else. With nothing new, it says so without a checklist. |
-| Resize during selection | Text reflows and selections are retained while the window remains large enough; the note under the title gives way first; an unusable size fails without changing files. |
+| Add a few more skills later | `install -i` lists only skills that are not installed. Accepting adds them, and changes nothing else. With nothing new to add, the command says so without opening a checklist. |
+| Resize during selection | Text reflows, and the tool keeps the current selections, while the window stays large enough. The note under the title gives way first. An unusable size fails, and changes no file. |
 | Upgrade a package | `install` refreshes its skills and removes the ones the new version dropped. |
-| Remove a package from the project | `install` keeps its skills and says which command removes them; `uninstall --stale` (with `--dry-run` or `-i`) removes them. |
+| Remove a package from the project | `install` keeps its skills, and it states which command removes them. `uninstall --stale`, with `--dry-run` or `-i`, removes them. |
 | Mix package versions in one repository | `install` stops before changes and asks for the versions to be aligned, for example with Central Package Management. |
-| Encounter incomplete discovery | Target-based install fails before copying or removing anything; restore and retry. |
-| Encounter another package's owned name | Preserve the installed owner and warn; replacement requires explicit removal first. |
+| Encounter incomplete discovery | A target-based install fails before it copies or removes anything. Restore the target, and retry. |
+| Encounter another package's owned name | Preserves the installed owner, and shows a warning. Replacing that owner requires an explicit removal first. |
 | Remove selectively | `uninstall -i` offers tracked skills only and removes only checked items. |
 | Use package filters in scripts | Blank filters fail, and normalized version matching is identical with and without `-i`. |
 | Keep locally authored guidance | Keep guidance in separate, untracked skill folders. |
 | Automate reliably | Check exit codes, read the ownership manifest, and run `install` followed by `uninstall --stale`. |
-| Commit the skills folder | The manifest has the same bytes on every platform, so commits don't churn line endings. |
-| Recover from a damaged ownership record | Receive an explicit error; repair or restore the preserved manifest before retrying. |
+| Commit the skills folder | The manifest has the same bytes on every platform, so a commit does not create line-ending differences. |
+| Recover from a damaged ownership record | You receive an explicit error. Repair the preserved manifest, or restore it, before you retry. |
