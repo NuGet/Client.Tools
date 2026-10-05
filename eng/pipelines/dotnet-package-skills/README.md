@@ -107,6 +107,21 @@ Packing must not rebuild or replace those assemblies.
 The first successful signed run remains an onboarding acceptance gate. Local and public PR
 validation alone do not establish that ESRP permissions are configured.
 
+### Alternative considered: `dotnet/sign`
+
+[`dotnet/sign`](https://github.com/dotnet/sign) is a .NET Foundation CLI tool that signs
+`.nupkg`/`.dll`/`.vsix`/ClickOnce files by delegating to an Azure Key Vault certificate, with no
+ESRP client, OneCert registration, or SAW access required. A team only needs a managed identity
+granted `sign`/`get` on its own Key Vault certificate, behind an ordinary workload-identity-federated
+service connection. This is a materially lighter onboarding path than ESRP.
+
+It is not used here because Microsoft's internal SFI compliance for production/official Azure
+Pipelines requires the `EsrpCodeSigning` task itself to execute; a cryptographically valid
+signature produced by `dotnet sign` against a self-owned certificate does not satisfy that
+requirement, and the resulting artifact would not carry Microsoft's own code-signing identity.
+`dotnet/sign` remains worth a second look if this tool's signing requirements ever change, for
+example a community-owned fork that signs with its own certificate instead of Microsoft's.
+
 ## Artifacts and local verification
 
 Artifacts are named `dotnet-package-skills-packages`, `dotnet-package-skills-testresults`, and
