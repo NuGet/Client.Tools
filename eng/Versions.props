@@ -3,5 +3,4 @@
     <VersionPrefix>0.1.0</VersionPrefix>
     <PreReleaseVersionLabel>beta</PreReleaseVersionLabel>
   </PropertyGroup>
-  <Import Project="pipelines\dotnet-package-skills\Build.props" />
 </Project>

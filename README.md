@@ -11,10 +11,7 @@ This repository contains tools shipped by the NuGet Client team to help develope
 Run from the repository root on Windows, with PowerShell 7 and the root-pinned .NET SDK:
 
 ```powershell
-eng\common\build.cmd -restore -build -test -configuration Release
-eng\common\build.cmd -pack -configuration Release /p:NoBuild=true
-eng\common\build.cmd -sign -configuration Release /p:NETCORE_ENGINEERING_TELEMETRY=false
-eng\pipelines\dotnet-package-skills\Invoke-Build.ps1 -Action Verify
+eng\common\build.cmd -restore -build -test -pack -configuration Release
 ```
 
 Install the .NET 8 runtime into the same .NET installation that Arcade selects. The SDK supplies
@@ -22,8 +19,6 @@ the .NET 10 runtime. The build graph retains `eng\Infrastructure.proj` and inclu
 solution. Artifacts use Arcade's `artifacts\bin`, `obj`, `log`, `TestResults`, and
 `packages\Release\Shipping` layout.
 
-Local and public signing actions validate the signing plan without changing signatures.
-Real signing requires the trusted internal main pipeline and owner-approved MicroBuild/ESRP
-resources. The pipelines publish artifacts only. See the
-[tool pipeline guide](eng/pipelines/dotnet-package-skills/README.md) for versions, prerequisites,
-verification, and retirement.
+The public pipeline produces unsigned packages. The official pipeline uses Arcade's recursive
+signing with owner-approved MicroBuild/ESRP resources. Both publish NuGet packages as build
+artifacts only. See the [tool pipeline guide](eng/pipelines/dotnet-package-skills/README.md).

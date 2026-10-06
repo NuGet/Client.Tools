@@ -588,20 +588,13 @@ Install PowerShell 7. Install the .NET 8 runtime into the same .NET installation
 uses. The SDK supplies the .NET 10 runtime. The CI system validates these commands on Windows.
 
 ```powershell
-eng\common\build.cmd -restore -build -test -configuration Release
-eng\common\build.cmd -pack -configuration Release /p:NoBuild=true
-eng\common\build.cmd -sign -configuration Release /p:NETCORE_ENGINEERING_TELEMETRY=false
-eng\pipelines\dotnet-package-skills\Invoke-Build.ps1 -Action Verify
+eng\common\build.cmd -restore -build -test -pack -configuration Release
 ```
 
 Arcade keeps the binaries under `artifacts\bin\DotnetPackageSkills\Release` and the package under
-`artifacts\packages\Release\Shipping`. The signing command above is a dry run. It needs no
-production connection and leaves the package unsigned.
-
-The verifier reads the expected version and paths from Arcade. It installs the exact package into a temporary tool path, once for
-.NET 8 and once for .NET 10. It runs the package's non-interactive commands, and then it removes
-its own temporary files. It does not replace a tool that you installed globally, and it does not
-change your installed skills.
+`artifacts\packages\Release\Shipping`. Local and public builds leave the package unsigned.
+Official builds use Arcade to sign the nested assemblies, repack the package, and sign the
+NuGet package. The original C# application tests run on both frameworks.
 
 A local build uses `0.1.0-dev`. A public CI or PR build uses `0.1.0-ci`.
 An ordinary official build uses `0.1.0-beta.<Arcade-short-date>.<revision>`.

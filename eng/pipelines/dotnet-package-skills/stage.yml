@@ -5,35 +5,79 @@ parameters:
 - name: releaseBuild
   type: boolean
   default: false
+- name: jobsTemplate
+  type: string
+  default: /eng/common/templates/jobs/jobs.yml
 
 stages:
 - stage: DotnetPackageSkills
-  displayName: dotnet-package-skills
-  dependsOn: []
   jobs:
-  - ${{ if eq(parameters.isOfficialBuild, true) }}:
-    - ${{ if and(eq(variables['Build.Repository.Provider'], 'TfsGit'), eq(variables['Build.Repository.Name'], 'NuGet-Client.Tools'), eq(variables['System.TeamProject'], 'internal'), eq(variables['System.CollectionUri'], 'https://dev.azure.com/dnceng/'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], ''), ne(variables['Build.Reason'], 'PullRequest')) }}:
-      - template: jobs-build.yml
-        parameters:
-          isOfficialBuild: true
-          releaseBuild: ${{ parameters.releaseBuild }}
-          jobsTemplate: /eng/common/templates-official/jobs/jobs.yml@self
-    - ${{ else }}:
-      - template: /eng/common/templates-official/jobs/jobs.yml@self
-        parameters:
-          runAsPublic: true
-          enableMicrobuild: false
-          enableTelemetry: false
-          enablePublishBuildAssets: false
-          enablePublishing: false
-          jobs:
-          - job: RejectUntrustedOfficialSource
-            displayName: Reject untrusted official source without signing resources
-            steps:
-            - pwsh: |
-                throw 'Official signing requires main from the trusted dnceng/internal/NuGet-Client.Tools repository with non-PR metadata.'
-              displayName: Reject untrusted source
-  - ${{ else }}:
-    - template: jobs-build.yml
-      parameters:
-        releaseBuild: ${{ parameters.releaseBuild }}
+  - template: ${{ parameters.jobsTemplate }}
+    parameters:
+      runAsPublic: ${{ not(parameters.isOfficialBuild) }}
+      enableMicrobuild: ${{ parameters.isOfficialBuild }}
+      enableTelemetry: false
+      enablePublishBuildAssets: false
+      testResultsFormat: vstest
+      artifacts:
+        publish:
+          logs: true
+      jobs:
+      - job: Windows
+        variables:
+        - name: _BuildConfig
+          value: Release
+        - name: DOTNET_INSTALL_DIR
+          value: $(Build.SourcesDirectory)\.dotnet
+        - name: _FinalVersionKind
+          ${{ if and(parameters.isOfficialBuild, parameters.releaseBuild) }}:
+            value: release
+          ${{ else }}:
+            value: ''
+        - ${{ if eq(parameters.isOfficialBuild, true) }}:
+          - name: _SignType
+            value: real
+          - name: _TeamName
+            value: $(DotnetPackageSkillsSigningTeamName)
+          - name: _OfficialBuildArgs
+            value: -sign /p:DotNetSignType=real /p:OfficialBuildId=$(Build.BuildNumber) /p:TeamName=$(_TeamName)
+        - ${{ else }}:
+          - name: _OfficialBuildArgs
+            value: ''
+        ${{ if eq(parameters.isOfficialBuild, true) }}:
+          templateContext:
+            outputs:
+            - output: pipelineArtifact
+              targetPath: $(Build.ArtifactStagingDirectory)\packages
+              artifactName: dotnet-package-skills-packages
+              condition: succeeded()
+        steps:
+        - task: UseDotNet@2
+          displayName: Install the root-pinned SDK
+          inputs:
+            packageType: sdk
+            useGlobalJson: true
+            workingDirectory: $(Build.SourcesDirectory)
+            installationPath: $(DOTNET_INSTALL_DIR)
+        - task: UseDotNet@2
+          displayName: Install the .NET 8 test runtime
+          inputs:
+            packageType: runtime
+            version: 8.0.x
+            installationPath: $(DOTNET_INSTALL_DIR)
+        - script: >-
+            eng\common\build.cmd -restore -build -test -pack -configuration Release -ci
+            $(_OfficialBuildArgs) /p:DotNetFinalVersionKind=$(_FinalVersionKind)
+            /p:NETCORE_ENGINEERING_TELEMETRY=false
+          displayName: Build, test, and package with Arcade
+        - task: CopyFiles@2
+          displayName: Stage NuGet packages
+          inputs:
+            SourceFolder: $(Build.SourcesDirectory)\artifacts\packages\Release\Shipping
+            Contents: 'dotnet-package-skills.*.nupkg'
+            TargetFolder: $(Build.ArtifactStagingDirectory)\packages
+        - ${{ if eq(parameters.isOfficialBuild, false) }}:
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)\packages
+              artifact: dotnet-package-skills-packages
