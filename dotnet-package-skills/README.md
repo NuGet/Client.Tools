@@ -579,31 +579,3 @@ explicitly.
 **A solution filter (`.slnf`) is rejected.** Not every SDK accepts a solution filter with
 `dotnet list package`. Pass the underlying `.sln` file instead, or run the tool once for each
 project with `--target`.
-
-## Build from source
-
-Run these commands from the root of a Client.Tools checkout. The root `global.json` selects the
-pinned .NET SDK and Arcade SDK. The root `NuGet.Config` selects the public restore feeds.
-Install PowerShell 7. Install the .NET 8 runtime into the same .NET installation that Arcade
-uses. The SDK supplies the .NET 10 runtime. The CI system validates these commands on Windows.
-
-```powershell
-eng\common\build.cmd -restore -build -test -pack -configuration Release
-```
-
-Arcade keeps the binaries under `artifacts\bin\DotnetPackageSkills\Release` and the package under
-`artifacts\packages\Release\Shipping`. Local and public builds leave the package unsigned.
-Official builds use Arcade to sign the nested assemblies, repack the package, and sign the
-NuGet package. The original C# application tests run on both frameworks.
-
-A local build uses `0.1.0-dev`. A public CI or PR build uses `0.1.0-ci`.
-An ordinary official build uses `0.1.0-beta.<Arcade-short-date>.<revision>`.
-Only an explicit manual release run from trusted internal main produces `0.1.0`.
-The reviewed base version lives in `eng\Versions.props`. Builds publish pipeline artifacts,
-not packages to a feed. See the
-[pipeline and release guide](../eng/pipelines/dotnet-package-skills/README.md) for more
-information.
-
-## License
-
-MIT
