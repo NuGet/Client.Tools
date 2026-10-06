@@ -1,0 +1,22 @@
+using System;
+using System.Threading;
+
+using var mutex = new Mutex(initiallyOwned: false, args[0]);
+if (!mutex.WaitOne(TimeSpan.FromSeconds(15)))
+{
+    throw new TimeoutException("The terminal fixture could not acquire the destination mutex.");
+}
+
+try
+{
+    Console.WriteLine("locked");
+    Console.Out.Flush();
+    if (Console.ReadLine() is null)
+    {
+        throw new InvalidOperationException("The terminal fixture's release pipe closed unexpectedly.");
+    }
+}
+finally
+{
+    mutex.ReleaseMutex();
+}
