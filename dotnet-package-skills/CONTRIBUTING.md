@@ -26,6 +26,9 @@ eng\common\dotnet.cmd artifacts\bin\DotnetPackageSkills\Release\net10.0\dotnet-p
 The build creates an unsigned tool package under `artifacts\packages\Release\Shipping`.
 It does not replace a globally installed tool. Only the official pipeline signs the package.
 
+For manual tests on a personal Mac, see the [full terminal regression suite](tests/terminal/README.md).
+These tests are not wired into CI.
+
 ## Layout
 
 ```
