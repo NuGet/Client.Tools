@@ -86,7 +86,7 @@ jobs:
               -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
           displayName: Validate trusted source and approved signing team before MicroBuild
       steps:
-      - template: steps-build.yml
+      - template: /eng/pipelines/dotnet-package-skills/steps-build.yml
         parameters:
           isOfficialBuild: ${{ parameters.isOfficialBuild }}
           releaseBuild: ${{ parameters.releaseBuild }}

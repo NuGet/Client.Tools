@@ -110,6 +110,17 @@ public class PipelineConfigurationTests
         Assert.Equal("False", Text(release["default"]));
     }
 
+    [Fact]
+    public void Steps_forwarded_through_Arcade_jobs_use_a_root_absolute_template_reference()
+    {
+        var root = Read(PipelineTestContext.PipelinePath("jobs-build.yml"));
+        var wrapper = Map(Assert.Single(List(root["jobs"])));
+        var job = Map(Assert.Single(List(Map(wrapper["parameters"])["jobs"])));
+        var step = Map(Assert.Single(List(job["steps"])));
+
+        Assert.Equal("/eng/pipelines/dotnet-package-skills/steps-build.yml", Text(step["template"]));
+    }
+
     private static Dictionary<string, string> TrustedVariables() => new()
     {
         ["Build.Repository.Provider"] = "TfsGit",
@@ -136,7 +147,7 @@ public class PipelineConfigurationTests
         var steps = new List<object>();
         foreach (var step in List(job["steps"]).Select(Map))
         {
-            if (step.TryGetValue("template", out var path) && Text(path) == "steps-build.yml")
+            if (step.TryGetValue("template", out var path) && Text(path) == "/eng/pipelines/dotnet-package-skills/steps-build.yml")
             {
                 steps.AddRange(List(ExpandOwned("steps-build.yml", Map(step["parameters"]), variables)["steps"]));
             }
