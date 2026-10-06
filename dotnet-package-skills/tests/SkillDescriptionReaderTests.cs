@@ -58,6 +58,11 @@ public class SkillDescriptionReaderTests
     [InlineData("description: \"   \"")]
     [InlineData("description: \"\\n\\t\\r\"")]
     [InlineData("description: |\n  \n  ")]
+    [InlineData("description: |-\n    \n    ")]
+    [InlineData("description: |+\n  \n  ")]
+    [InlineData("description: >\n  \n  ")]
+    [InlineData("description: >-\n    \n    ")]
+    [InlineData("description: >+\n  \n  ")]
     public void Missing_or_blank_descriptions_have_no_warning(string yaml)
     {
         using var temp = new TempDirectory();
@@ -66,6 +71,18 @@ public class SkillDescriptionReaderTests
         var result = SkillDescriptionReader.Read(temp.Path);
 
         Assert.Null(result.Description);
+        Assert.Null(result.Warning);
+    }
+
+    [Fact]
+    public void A_trailing_blank_block_does_not_change_an_earlier_description()
+    {
+        using var temp = new TempDirectory();
+        WriteFrontmatter(temp, "description: |+\n  First\n    \n  Second\n\nother: |\n  \n  ");
+
+        var result = SkillDescriptionReader.Read(temp.Path);
+
+        Assert.Equal("First\n  \nSecond\n\n", result.Description);
         Assert.Null(result.Warning);
     }
 
@@ -174,6 +191,7 @@ public class SkillDescriptionReaderTests
     [InlineData("description: Valid first\nlater: {unfinished")]
     [InlineData("name: No description\nlater: [unfinished")]
     [InlineData("description: Valid first\nlater:\n\tinvalid: indentation")]
+    [InlineData("description: |\n    \n  Content")]
     public void Malformed_YAML_warns_instead_of_returning_partial_metadata(string yaml)
     {
         using var temp = new TempDirectory();

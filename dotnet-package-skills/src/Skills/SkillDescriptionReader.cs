@@ -1,6 +1,6 @@
 using System.Text;
-using SharpYaml;
-using SharpYaml.Events;
+using YamlDotNet.Core;
+using YamlDotNet.Core.Events;
 
 namespace DotnetPackageSkills.Skills;
 
@@ -137,14 +137,29 @@ internal static class SkillDescriptionReader
 
     private static SkillDescriptionResult Parse(string frontmatter)
     {
-        var parser = new EventReader(Parser.CreateParser(new StringReader(frontmatter)));
-        parser.Expect<StreamStart>();
-        if (parser.Allow<StreamEnd>() is not null)
+        try
+        {
+            return ParseDocument(frontmatter);
+        }
+        catch (SemanticErrorException exception) when (
+            exception.Start.Index == frontmatter.Length && exception.End.Index == frontmatter.Length)
+        {
+            // YamlDotNet rejects indentation in an all-blank trailing block. Reparse the
+            // whole document without trailing whitespace, keeping all metadata checks.
+            return ParseDocument(frontmatter.TrimEnd(' ', '\t', '\n') + '\n');
+        }
+    }
+
+    private static SkillDescriptionResult ParseDocument(string frontmatter)
+    {
+        var parser = new Parser(new StringReader(frontmatter));
+        parser.Consume<StreamStart>();
+        if (parser.TryConsume<StreamEnd>(out _))
         {
             return new(null, null);
         }
 
-        parser.Expect<DocumentStart>();
+        parser.Consume<DocumentStart>();
         var root = ReadNodeStart(parser);
         if (root is not MappingStart)
         {
@@ -153,7 +168,7 @@ internal static class SkillDescriptionReader
 
         string? description = null;
         var foundDescription = false;
-        while (parser.Allow<MappingEnd>() is null)
+        while (!parser.TryConsume<MappingEnd>(out _))
         {
             var key = ReadNode(parser, 2);
             var value = ReadNode(parser, 2);
@@ -176,12 +191,12 @@ internal static class SkillDescriptionReader
             description = string.IsNullOrWhiteSpace(value.Value) ? null : value.Value;
         }
 
-        parser.Expect<DocumentEnd>();
-        parser.Expect<StreamEnd>();
+        parser.Consume<DocumentEnd>();
+        parser.Consume<StreamEnd>();
         return new(description, null);
     }
 
-    private static Scalar? ReadNode(EventReader parser, int depth)
+    private static Scalar? ReadNode(IParser parser, int depth)
     {
         var node = ReadNodeStart(parser);
         if (node is Scalar scalar)
@@ -196,7 +211,7 @@ internal static class SkillDescriptionReader
 
         if (node is MappingStart)
         {
-            while (parser.Allow<MappingEnd>() is null)
+            while (!parser.TryConsume<MappingEnd>(out _))
             {
                 ReadNode(parser, depth + 1);
                 ReadNode(parser, depth + 1);
@@ -204,7 +219,7 @@ internal static class SkillDescriptionReader
         }
         else
         {
-            while (parser.Allow<SequenceEnd>() is null)
+            while (!parser.TryConsume<SequenceEnd>(out _))
             {
                 ReadNode(parser, depth + 1);
             }
@@ -213,20 +228,20 @@ internal static class SkillDescriptionReader
         return null;
     }
 
-    private static NodeEvent ReadNodeStart(EventReader parser)
+    private static NodeEvent ReadNodeStart(IParser parser)
     {
-        if (parser.Accept<AnchorAlias>())
+        if (parser.Accept<AnchorAlias>(out _))
         {
             throw new FrontmatterException("uses YAML anchors or aliases; replace them with literal values.");
         }
 
-        var node = parser.Expect<NodeEvent>();
-        if (!string.IsNullOrEmpty(node.Anchor))
+        var node = parser.Consume<NodeEvent>();
+        if (!node.Anchor.IsEmpty)
         {
             throw new FrontmatterException("uses YAML anchors or aliases; replace them with literal values.");
         }
 
-        if (!string.IsNullOrEmpty(node.Tag))
+        if (!node.Tag.IsEmpty)
         {
             throw new FrontmatterException("uses explicit YAML tags; remove the tags from its frontmatter.");
         }
