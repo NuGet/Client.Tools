@@ -20,6 +20,19 @@ extends:
     stages:
     - stage: Build
       jobs:
-      - job: HelloWorld
-        steps:
-        - script: echo Hello world!
+      - template: /eng/common/templates-official/jobs/jobs.yml@self
+        parameters:
+          enableMicrobuild: false
+          enableTelemetry: false
+          enablePublishBuildAssets: false
+          artifacts:
+            publish:
+              logs: true
+          jobs:
+          - job: ArcadeInfrastructure
+            variables:
+            - name: _BuildConfig
+              value: Release
+            steps:
+            - script: eng\common\build.cmd -restore -build -configuration $(_BuildConfig) -ci
+              displayName: Restore and validate Arcade infrastructure
