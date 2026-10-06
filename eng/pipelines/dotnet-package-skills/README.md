@@ -52,7 +52,7 @@ the reviewed main commit before a real-signing run.
 
 Root `eng\Signing.props` imports the concise module `Signing.props`. It lists the tool package
 and both loose owned DLLs. Arcade uses the .NET certificate for first-party DLLs and the
-standard NuGet profile for the package. SharpYaml uses `3PartySHA2`. Already signed Microsoft
+standard NuGet profile for the package. YamlDotNet uses `3PartySHA2`. Already signed Microsoft
 dependencies keep their original signatures. This follows how
 [dotnet/sign builds its own releases](https://github.com/dotnet/sign/blob/f3cc758ffd4f5edccb567820606b17eea49745c0/.vsts-ci.yml),
 not the public sign CLI. Real-signing acceptance requires a successful authorized official run;

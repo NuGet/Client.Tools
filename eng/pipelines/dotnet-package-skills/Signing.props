@@ -9,6 +9,6 @@
     <ItemsToSign Include="$(ArtifactsBinDir)DotnetPackageSkills\$(Configuration)\net10.0\dotnet-package-skills.dll" />
     <!-- Authenticode signing must not assign new strong-name identities. -->
     <StrongNameSignInfo Remove="@(StrongNameSignInfo)" />
-    <FileSignInfo Include="SharpYaml.dll" CertificateName="3PartySHA2" />
+    <FileSignInfo Include="YamlDotNet.dll" CertificateName="3PartySHA2" />
   </ItemGroup>
 </Project>
