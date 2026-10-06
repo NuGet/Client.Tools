@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <MicrosoftNETTestSdkVersion>17.14.1</MicrosoftNETTestSdkVersion>
+    <XUnitVersion>2.9.3</XUnitVersion>
+    <XUnitAnalyzersVersion>1.18.0</XUnitAnalyzersVersion>
+    <XUnitRunnerVisualStudioVersion>3.1.4</XUnitRunnerVisualStudioVersion>
+  </PropertyGroup>
+
+  <Import Project="..\Directory.Build.props" />
+
+  <PropertyGroup>
+    <SignAssembly>false</SignAssembly>
+    <IsShipping>false</IsShipping>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

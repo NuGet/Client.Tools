@@ -1,0 +1,41 @@
+<Project>
+  <PropertyGroup>
+    <UseDotNetCertificate>true</UseDotNetCertificate>
+    <EnableDefaultArtifacts>false</EnableDefaultArtifacts>
+    <AllowEmptySignList>false</AllowEmptySignList>
+  </PropertyGroup>
+  <ItemGroup>
+    <ItemsToSign Remove="@(ItemsToSign)" />
+    <FileExtensionSignInfo Remove="@(FileExtensionSignInfo)" />
+    <FileExtensionSignInfo Include=".nupkg" CertificateName="NuGet" />
+    <!-- No key is assigned: Authenticode signing must retain the original strong-name identities. -->
+    <StrongNameSignInfo Remove="@(StrongNameSignInfo)" />
+    <FileSignInfo Remove="@(FileSignInfo)" />
+  </ItemGroup>
+  <Import Project="Payload.props" />
+
+  <Target Name="CollectDotnetPackageSkillsSigningInputs" BeforeTargets="Sign"
+          DependsOnTargets="ValidateDotnetPackageSkillsBuild">
+    <Error Condition="'$(OfficialBuild)' == 'true' and '$(ForceDryRunSigning)' != 'true' and '$(DotNetSignType)' != 'real'"
+           Text="dotnet-package-skills: trusted official signing must use DotNetSignType=real." />
+    <MSBuild Projects="$(RepoRoot)dotnet-package-skills\src\DotnetPackageSkills.csproj"
+             Targets="GetDotnetPackageSkillsSigningInputs" Properties="TargetFramework=net8.0">
+      <Output TaskParameter="TargetOutputs" ItemName="_DotnetPackageSkillsSigningInputs" />
+    </MSBuild>
+    <ItemGroup>
+      <ItemsToSign Remove="@(ItemsToSign)" />
+      <ItemsToSign Include="@(_DotnetPackageSkillsSigningInputs)" />
+    </ItemGroup>
+    <Error Condition="'@(ItemsToSign->Count())' != '3'"
+           Text="dotnet-package-skills: signing requires exactly the shipping nupkg and both tested loose DLLs." />
+    <Error Condition="!Exists('%(ItemsToSign.Identity)')"
+           Text="dotnet-package-skills: missing signing input %(ItemsToSign.Identity)." />
+    <GetFileHash Files="@(ItemsToSign)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_DotnetPackageSkillsInputHashes" />
+    </GetFileHash>
+    <Error Condition="'%(_DotnetPackageSkillsInputHashes.FileHash)' == 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'"
+           Text="dotnet-package-skills: empty signing input %(_DotnetPackageSkillsInputHashes.Identity)." />
+    <Exec Command="pwsh -NoLogo -NoProfile -NonInteractive -File &quot;$(RepoRoot)eng\pipelines\dotnet-package-skills\Test-Package.ps1&quot; -PackagePath &quot;%(_DotnetPackageSkillsSigningInputs.PackagePath)&quot; -ExpectedVersion &quot;%(_DotnetPackageSkillsSigningInputs.PackageVersion)&quot; -BuildOutputPath &quot;%(_DotnetPackageSkillsSigningInputs.BuildOutputPath)&quot; -DotnetPath &quot;$(DotNetTool)&quot; -StrongNameToolPath &quot;$(NuGetPackageRoot)sn\$(SNVersion)\sn.exe&quot;"
+          Condition="'%(_DotnetPackageSkillsSigningInputs.PackagePath)' != ''" />
+  </Target>
+</Project>

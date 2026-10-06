@@ -1,0 +1,103 @@
+parameters:
+- name: isOfficialBuild
+  type: boolean
+  default: false
+- name: releaseBuild
+  type: boolean
+  default: false
+
+steps:
+- pwsh: |
+    foreach ($directory in @(
+      "$(Build.SourcesDirectory)\artifacts\log\Release",
+      "$(Build.SourcesDirectory)\artifacts\TestResults\Release",
+      "$(DotnetPackageSkillsPackageArtifactPath)"
+    )) {
+      [IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+  displayName: Prepare native diagnostic and package artifact directories
+
+- task: UseDotNet@2
+  displayName: Install root-pinned .NET SDK into the Arcade installation
+  inputs:
+    packageType: sdk
+    useGlobalJson: true
+    workingDirectory: $(Build.SourcesDirectory)
+    installationPath: $(DOTNET_INSTALL_DIR)
+
+- task: UseDotNet@2
+  displayName: Install .NET 8 runtime into the same Arcade installation
+  inputs:
+    packageType: runtime
+    version: 8.0.x
+    installationPath: $(DOTNET_INSTALL_DIR)
+
+- pwsh: |
+    & "$(DotnetPackageSkillsPipelineDirectory)\Invoke-Build.ps1" -Action RestoreBuild -CI `
+      -Official:([bool]::Parse('${{ parameters.isOfficialBuild }}')) `
+      -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
+  displayName: Restore and build the root Arcade graph, including infrastructure validation
+  workingDirectory: $(Build.SourcesDirectory)
+
+- pwsh: |
+    & "$(DotnetPackageSkillsPipelineDirectory)\Invoke-Build.ps1" -Action Test -CI `
+      -Official:([bool]::Parse('${{ parameters.isOfficialBuild }}')) `
+      -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
+  displayName: Run C# tests on both frameworks and reject missing or failed results
+  workingDirectory: $(Build.SourcesDirectory)
+
+- task: PublishTestResults@2
+  displayName: Publish both C# framework results with fail-closed checks
+  condition: succeededOrFailed()
+  inputs:
+    testResultsFormat: VSTest
+    testResultsFiles: $(Build.SourcesDirectory)\artifacts\TestResults\Release\DotnetPackageSkills.Tests_*.trx
+    testRunTitle: dotnet-package-skills
+    failTaskOnFailedTests: true
+    failTaskOnMissingResultsFile: true
+    failTaskOnFailureToPublishResults: true
+
+- pwsh: |
+    & "$(DotnetPackageSkillsPipelineDirectory)\Invoke-Build.ps1" -Action Pack -CI `
+      -Official:([bool]::Parse('${{ parameters.isOfficialBuild }}')) `
+      -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
+  displayName: Pack the native shipping package without rebuilding
+  workingDirectory: $(Build.SourcesDirectory)
+
+- pwsh: |
+    & "$(DotnetPackageSkillsPipelineDirectory)\Invoke-Build.ps1" -Action Sign -CI `
+      -Official:([bool]::Parse('${{ parameters.isOfficialBuild }}')) `
+      -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
+  ${{ if eq(parameters.isOfficialBuild, true) }}:
+    displayName: Recursively real-sign payloads, repack, and sign the package through Arcade
+  ${{ else }}:
+    displayName: Validate the Arcade signing plan without signing or production access
+  workingDirectory: $(Build.SourcesDirectory)
+
+- pwsh: |
+    & "$(DotnetPackageSkillsPipelineDirectory)\Invoke-Build.ps1" -Action Verify -CI `
+      -Official:([bool]::Parse('${{ parameters.isOfficialBuild }}')) `
+      -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}')) `
+      -PackageArtifactPath "$(DotnetPackageSkillsPackageArtifactPath)"
+  displayName: Verify and install only the exact native package on both runtimes
+  workingDirectory: $(Build.SourcesDirectory)
+
+- ${{ if eq(parameters.isOfficialBuild, false) }}:
+  - task: PublishPipelineArtifact@1
+    displayName: Publish the verified unsigned tool package
+    condition: and(succeeded(), eq(variables['DotnetPackageSkillsPackageVerified'], 'true'))
+    inputs:
+      targetPath: $(DotnetPackageSkillsPackageArtifactPath)
+      artifact: dotnet-package-skills-packages
+  - task: PublishPipelineArtifact@1
+    displayName: Retain native diagnostic logs
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: $(Build.SourcesDirectory)\artifacts\log\Release
+      artifact: dotnet-package-skills-logs
+  - task: PublishPipelineArtifact@1
+    displayName: Retain both framework result files
+    condition: succeededOrFailed()
+    inputs:
+      targetPath: $(Build.SourcesDirectory)\artifacts\TestResults\Release
+      artifact: dotnet-package-skills-testresults

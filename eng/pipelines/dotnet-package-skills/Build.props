@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <DotnetPackageSkillsReleaseBuild Condition="'$(DotnetPackageSkillsReleaseBuild)' == ''">false</DotnetPackageSkillsReleaseBuild>
+    <_DotnetPackageSkillsReleaseRequested>$([System.Text.RegularExpressions.Regex]::IsMatch('$(DotnetPackageSkillsReleaseBuild)', '^(?i:true)$'))</_DotnetPackageSkillsReleaseRequested>
+    <_DotnetPackageSkillsValidBuildId>false</_DotnetPackageSkillsValidBuildId>
+    <_DotnetPackageSkillsBuildIdShape>$([System.Text.RegularExpressions.Regex]::IsMatch('$(OfficialBuildId)', '^20[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])\.[1-9][0-9]?$'))</_DotnetPackageSkillsBuildIdShape>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(_DotnetPackageSkillsBuildIdShape)' == 'true'">
+    <_DotnetPackageSkillsBuildYear>$(OfficialBuildId.Substring(0, 4))</_DotnetPackageSkillsBuildYear>
+    <_DotnetPackageSkillsBuildMonth>$(OfficialBuildId.Substring(4, 2))</_DotnetPackageSkillsBuildMonth>
+    <_DotnetPackageSkillsBuildDay>$(OfficialBuildId.Substring(6, 2))</_DotnetPackageSkillsBuildDay>
+    <_DotnetPackageSkillsValidBuildId Condition="$(_DotnetPackageSkillsBuildDay) &lt;= $([System.DateTime]::DaysInMonth($(_DotnetPackageSkillsBuildYear), $(_DotnetPackageSkillsBuildMonth)))">true</_DotnetPackageSkillsValidBuildId>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- Keep malformed IDs out of Arcade's evaluation-time date arithmetic; the build guard rejects the original input. -->
+    <OfficialBuild Condition="'$(OfficialBuildId)' != '' and '$(_DotnetPackageSkillsValidBuildId)' != 'true'">false</OfficialBuild>
+    <_DotnetPackageSkillsTrustedBuild>false</_DotnetPackageSkillsTrustedBuild>
+    <_DotnetPackageSkillsTrustedBuild Condition="'$(OfficialBuild)' == 'true' and
+        '$(ContinuousIntegrationBuild)' == 'true' and '$(_DotnetPackageSkillsValidBuildId)' == 'true' and
+        '$(BUILD_REPOSITORY_PROVIDER)' == 'TfsGit' and '$(BUILD_REPOSITORY_NAME)' == 'NuGet-Client.Tools' and
+        '$(SYSTEM_TEAMPROJECT)' == 'internal' and '$(SYSTEM_COLLECTIONURI)' == 'https://dev.azure.com/dnceng/' and
+        '$(BUILD_SOURCEBRANCH)' == 'refs/heads/main' and '$(BUILD_REASON)' != '' and '$(BUILD_REASON)' != 'PullRequest'">true</_DotnetPackageSkillsTrustedBuild>
+    <DotNetFinalVersionKind Condition="'$(_DotnetPackageSkillsReleaseRequested)' == 'true' and
+        '$(_DotnetPackageSkillsTrustedBuild)' == 'true' and '$(BUILD_REASON)' == 'Manual'">release</DotNetFinalVersionKind>
+  </PropertyGroup>
+  <Import Project="Build.targets" />
+</Project>
