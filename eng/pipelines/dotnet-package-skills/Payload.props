@@ -1,0 +1,20 @@
+<Project>
+  <ItemGroup>
+    <FileSignInfo Include="dotnet-package-skills.dll" CertificateName="MicrosoftDotNet500"
+                  PublicKeyToken="" Owner="Tool" OriginalSignature="false"
+                  Frameworks="net8.0;net10.0" Cultures="" />
+    <FileSignInfo Include="SharpYaml.dll" CertificateName="3PartySHA2"
+                  PublicKeyToken="1ced8108e942bc02" Owner="ThirdParty" OriginalSignature="false"
+                  Frameworks="net8.0;net10.0" Cultures="" />
+    <FileSignInfo Include="System.Collections.Immutable.dll" CertificateName="MicrosoftDotNet500"
+                  PublicKeyToken="b03f5f7f11d50a3a" Owner="Microsoft" OriginalSignature="true"
+                  Frameworks="net8.0" Cultures="" />
+    <FileSignInfo Include="System.CommandLine.dll" CertificateName="MicrosoftDotNet500"
+                  PublicKeyToken="31bf3856ad364e35" Owner="Microsoft" OriginalSignature="true"
+                  Frameworks="net8.0;net10.0" Cultures="" />
+    <FileSignInfo Include="System.CommandLine.resources.dll" CertificateName="MicrosoftDotNet500"
+                  PublicKeyToken="31bf3856ad364e35" Owner="Microsoft" OriginalSignature="true"
+                  Frameworks="net8.0;net10.0"
+                  Cultures="cs;de;es;fr;it;ja;ko;pl;pt-BR;ru;tr;zh-Hans;zh-Hant" />
+  </ItemGroup>
+</Project>

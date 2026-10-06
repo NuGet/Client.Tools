@@ -1,0 +1,92 @@
+parameters:
+- name: isOfficialBuild
+  type: boolean
+  default: false
+- name: releaseBuild
+  type: boolean
+  default: false
+- name: jobsTemplate
+  type: string
+  default: /eng/common/templates/jobs/jobs.yml
+
+jobs:
+- template: ${{ parameters.jobsTemplate }}
+  parameters:
+    runAsPublic: ${{ not(parameters.isOfficialBuild) }}
+    enableMicrobuild: ${{ parameters.isOfficialBuild }}
+    microbuildUseESRP: true
+    enableMicrobuildForMacAndLinux: false
+    enableTelemetry: false
+    enablePublishBuildAssets: false
+    enablePublishing: false
+    enablePublishBuildArtifacts: false
+    enablePublishTestResults: false
+    artifacts:
+      publish:
+        logs: true
+    jobs:
+    - job: DotnetPackageSkillsWindows
+      displayName: Build, test, pack, and verify dotnet-package-skills
+      timeoutInMinutes: 60
+      variables:
+      - name: _BuildConfig
+        value: Release
+      - name: DotnetPackageSkillsPackageVerified
+        value: 'false'
+      - name: DotnetPackageSkillsPipelineDirectory
+        value: $(Build.SourcesDirectory)\eng\pipelines\dotnet-package-skills
+      - name: DotnetPackageSkillsPackageArtifactPath
+        value: $(Build.ArtifactStagingDirectory)\dotnet-package-skills\packages
+      - name: DOTNET_INSTALL_DIR
+        value: $(Build.SourcesDirectory)\.dotnet
+      - name: DOTNET_ROOT
+        value: $(Build.SourcesDirectory)\.dotnet
+      - name: DOTNET_ROOT_X64
+        value: $(Build.SourcesDirectory)\.dotnet
+      - name: DOTNET_NOLOGO
+        value: '1'
+      - name: DOTNET_CLI_TELEMETRY_OPTOUT
+        value: '1'
+      - name: DOTNET_GENERATE_ASPNET_CERTIFICATE
+        value: 'false'
+      - name: DOTNET_ADD_GLOBAL_TOOLS_TO_PATH
+        value: 'false'
+      - ${{ if eq(parameters.isOfficialBuild, true) }}:
+        - name: _SignType
+          value: real
+        - name: _TeamName
+          value: $(DotnetPackageSkillsSigningTeamName)
+        - name: DOTNET_PACKAGE_SKILLS_SIGNING_TEAM
+          value: $(DotnetPackageSkillsSigningTeamName)
+      ${{ if eq(parameters.isOfficialBuild, true) }}:
+        templateContext:
+          outputs:
+          - output: pipelineArtifact
+            targetPath: $(DotnetPackageSkillsPackageArtifactPath)
+            artifactName: dotnet-package-skills-packages
+            condition: and(succeeded(), eq(variables['DotnetPackageSkillsPackageVerified'], 'true'))
+          - output: pipelineArtifact
+            targetPath: $(Build.SourcesDirectory)\artifacts\log\Release
+            artifactName: dotnet-package-skills-logs
+            condition: succeededOrFailed()
+            isProduction: false
+          - output: pipelineArtifact
+            targetPath: $(Build.SourcesDirectory)\artifacts\TestResults\Release
+            artifactName: dotnet-package-skills-testresults
+            condition: succeededOrFailed()
+            isProduction: false
+      preSteps:
+      - checkout: self
+        clean: true
+        fetchDepth: 0
+        fetchTags: false
+      - ${{ if eq(parameters.isOfficialBuild, true) }}:
+        - pwsh: |
+            & "$(DotnetPackageSkillsPipelineDirectory)\Validate-OfficialSource.ps1" `
+              -ReleaseBuild:([bool]::Parse('${{ parameters.releaseBuild }}'))
+          displayName: Validate trusted source and approved signing team before MicroBuild
+      steps:
+      - template: steps-build.yml
+        parameters:
+          isOfficialBuild: ${{ parameters.isOfficialBuild }}
+          releaseBuild: ${{ parameters.releaseBuild }}

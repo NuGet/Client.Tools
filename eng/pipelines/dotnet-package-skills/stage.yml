@@ -1,0 +1,39 @@
+parameters:
+- name: isOfficialBuild
+  type: boolean
+  default: false
+- name: releaseBuild
+  type: boolean
+  default: false
+
+stages:
+- stage: DotnetPackageSkills
+  displayName: dotnet-package-skills
+  dependsOn: []
+  jobs:
+  - ${{ if eq(parameters.isOfficialBuild, true) }}:
+    - ${{ if and(eq(variables['Build.Repository.Provider'], 'TfsGit'), eq(variables['Build.Repository.Name'], 'NuGet-Client.Tools'), eq(variables['System.TeamProject'], 'internal'), eq(variables['System.CollectionUri'], 'https://dev.azure.com/dnceng/'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], ''), ne(variables['Build.Reason'], 'PullRequest')) }}:
+      - template: jobs-build.yml
+        parameters:
+          isOfficialBuild: true
+          releaseBuild: ${{ parameters.releaseBuild }}
+          jobsTemplate: /eng/common/templates-official/jobs/jobs.yml@self
+    - ${{ else }}:
+      - template: /eng/common/templates-official/jobs/jobs.yml@self
+        parameters:
+          runAsPublic: true
+          enableMicrobuild: false
+          enableTelemetry: false
+          enablePublishBuildAssets: false
+          enablePublishing: false
+          jobs:
+          - job: RejectUntrustedOfficialSource
+            displayName: Reject untrusted official source without signing resources
+            steps:
+            - pwsh: |
+                throw 'Official signing requires main from the trusted dnceng/internal/NuGet-Client.Tools repository with non-PR metadata.'
+              displayName: Reject untrusted source
+  - ${{ else }}:
+    - template: jobs-build.yml
+      parameters:
+        releaseBuild: ${{ parameters.releaseBuild }}

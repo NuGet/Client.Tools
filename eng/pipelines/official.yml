@@ -1,3 +1,11 @@
+name: $(Date:yyyyMMdd).$(Rev:r)
+appendCommitMessageToRunName: false
+
+parameters:
+- name: DotnetPackageSkillsReleaseBuild
+  type: boolean
+  default: false
+
 trigger:
 - main
 
@@ -18,21 +26,7 @@ extends:
       demands: ImageOverride -equals windows.vs2026.amd64
       os: windows
     stages:
-    - stage: Build
-      jobs:
-      - template: /eng/common/templates-official/jobs/jobs.yml@self
-        parameters:
-          enableMicrobuild: false
-          enableTelemetry: false
-          enablePublishBuildAssets: false
-          artifacts:
-            publish:
-              logs: true
-          jobs:
-          - job: ArcadeInfrastructure
-            variables:
-            - name: _BuildConfig
-              value: Release
-            steps:
-            - script: eng\common\build.cmd -restore -build -configuration $(_BuildConfig) -ci
-              displayName: Restore and validate Arcade infrastructure
+    - template: /eng/pipelines/dotnet-package-skills/stage.yml@self
+      parameters:
+        isOfficialBuild: true
+        releaseBuild: ${{ parameters.DotnetPackageSkillsReleaseBuild }}
