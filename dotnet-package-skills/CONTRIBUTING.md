@@ -14,7 +14,7 @@ Windows only. Use the root SDK, Arcade imports, and public feeds. Do not add a t
 ```powershell
 git clone https://github.com/NuGet/Client.Tools.git
 Set-Location .\Client.Tools
-eng\common\build.cmd -restore -build -test -configuration Release
+eng\common\build.cmd -restore -build -test -pack -configuration Release
 ```
 
 Try your build against a real repository without installing it:
@@ -24,13 +24,8 @@ eng\common\dotnet.cmd artifacts\bin\DotnetPackageSkills\Release\net10.0\dotnet-p
   list --target C:\path\to\YourApp.sln
 ```
 
-Pack and verify your build without replacing a globally installed tool:
-
-```powershell
-eng\common\build.cmd -pack -configuration Release /p:NoBuild=true
-eng\common\build.cmd -sign -configuration Release /p:NETCORE_ENGINEERING_TELEMETRY=false
-eng\pipelines\dotnet-package-skills\Invoke-Build.ps1 -Action Verify
-```
+The build creates an unsigned tool package under `artifacts\packages\Release\Shipping`.
+It does not replace a globally installed tool. Only the official pipeline signs the package.
 
 ## Origin
 
@@ -42,7 +37,7 @@ history. The source repository is unchanged.
 The source README and package metadata name the MIT license. Client.Tools keeps its own root MIT
 license file. We left out the Python and Node.js terminal regression tests on purpose. The C#
 picker tests and the interactive tool behavior stay the same. Build configuration and pipeline
-integration live in this tool's pipeline folder, with small root build, version, signing, and
+integration live in this tool's pipeline folder, with small root build, signing, and
 stage references. Remove these references with the tool, but keep the shared Arcade foundation.
 This lets a maintainer retire the tool on its own, for example when its function moves into the
 .NET SDK.
@@ -359,26 +354,10 @@ a buffer instead of joining writes end to end. The picker redraws its frame in p
 every write together would stack frames on top of each other. A real user sees only one page at
 a time, and the test model must match that.
 
-### Checks for the pipeline and the package
-
-`PipelineVersionTests` evaluates Arcade's native MSBuild version properties for both frameworks.
-It covers local, public CI, official prerelease, and stable release versions. It rejects
-untrusted, automatic, missing, and malformed release inputs. Other `Pipeline*Tests` cover
-package metadata and payloads, missing or failed results, trusted-source checks, and the owned
-public and official templates. These tests need `pwsh` on the PATH and the restored Arcade
-toolset. They use no production signing connection.
-
-A separate package verifier installs the produced `.nupkg` file for each target framework. It
-checks the package version, the package payload, and the install, list, and uninstall behavior,
-all inside temporary directories. Official builds also require a valid package signature and
-valid signatures on the extracted owned and dependency DLLs. The verifier keeps the strict
-SHA256 comparison between packaged owned DLLs and the explicitly listed tested loose copies.
-It checks every redistributed strong-name identity and retains the original Microsoft
-dependency signatures.
-
-Keep all pipeline logic that is specific to this tool under `eng\pipelines\dotnet-package-skills`,
-at the root of the repository. See its [guide](../eng/pipelines/dotnet-package-skills/README.md)
-for version numbering, official signing setup, and the checklist for retiring this tool.
+Arcade's standard `-test` action runs the application suite on both frameworks and publishes
+the CI results. Keep tool-specific pipeline and signing configuration under
+`eng\pipelines\dotnet-package-skills`. See its
+[guide](../eng/pipelines/dotnet-package-skills/README.md) for versions and official prerequisites.
 
 ### Name unit tests
 
