@@ -25,9 +25,22 @@ public class PackagePathResolverTests
     public void NormalizeVersion_matches_NuGet_folder_naming(string input, string expected) =>
         Assert.Equal(expected, PackagePathResolver.NormalizeVersion(input));
 
-    [Fact]
-    public void NormalizeVersion_leaves_unparseable_versions_alone_for_the_directory_scan() =>
-        Assert.Equal("1.x.3", PackagePathResolver.NormalizeVersion("1.X.3"));
+    [Theory]
+    [InlineData("1.X.3")]
+    [InlineData("1.2.3.4.5")]
+    [InlineData("1.0.0-alpha.")]
+    [InlineData("1.0.0+a..b")]
+    [InlineData("2147483648.0.0")]
+    [InlineData("1.*")]
+    [InlineData("[1.0,2.0)")]
+    public void Invalid_versions_are_rejected_before_cache_lookup(string version)
+    {
+        using var temp = new TempDirectory();
+
+        Assert.Throws<PackageSkillsException>(() => PackagePathResolver.NormalizeVersion(version));
+        Assert.Throws<PackageSkillsException>(() =>
+            PackagePathResolver.Resolve(temp.Combine("missing-cache"), "Mockly", version));
+    }
 
     [Fact]
     public void Resolve_finds_the_lowercased_folder_for_a_mixed_case_package_id()
@@ -54,10 +67,9 @@ public class PackagePathResolverTests
     {
         using var temp = new TempDirectory();
 
-        // A folder name our rules would not produce, so only the scan can find it.
-        temp.CreateDirectory("packages", "oddball", "1.2.3.4.5");
+        temp.CreateDirectory("packages", "oddball", "1.02-BETA+Build.99");
 
-        Assert.NotNull(PackagePathResolver.Resolve(temp.Combine("packages"), "Oddball", "1.2.3.4.5"));
+        Assert.NotNull(PackagePathResolver.Resolve(temp.Combine("packages"), "Oddball", "1.02-beta+build.99"));
     }
 
     [Fact]

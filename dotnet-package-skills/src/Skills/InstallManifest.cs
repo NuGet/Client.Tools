@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetPackageSkills.NuGet;
+using NuGet.Versioning;
 
 namespace DotnetPackageSkills.Skills;
 
@@ -50,6 +51,7 @@ public sealed class InstallManifest
     public static InstallManifest Load(string destinationRoot)
     {
         var path = Path.Combine(destinationRoot, FileName);
+        RequireRegularManifest(path);
 
         if (!File.Exists(path))
         {
@@ -143,6 +145,11 @@ public sealed class InstallManifest
                 string.IsNullOrWhiteSpace(version.GetString()))
             {
                 throw CannotRead(path, $"'packages.{id}.version' must be text");
+            }
+
+            if (!NuGetVersion.TryParse(version.GetString(), out _))
+            {
+                throw CannotRead(path, $"'packages.{id}.version' must be an exact NuGet version");
             }
 
             if (!TryGetProperty(package.Value, "skills", out var skills) || skills.ValueKind != JsonValueKind.Array)
@@ -249,11 +256,13 @@ public sealed class InstallManifest
 
     public void Save(string destinationRoot)
     {
+        var path = Path.Combine(destinationRoot, FileName);
+        RequireRegularManifest(path);
         Directory.CreateDirectory(destinationRoot);
 
         // Rewrite the existing file rather than replacing it, which keeps its permissions.
         File.WriteAllText(
-            Path.Combine(destinationRoot, FileName),
+            path,
             Serialize(),
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
@@ -340,9 +349,30 @@ public sealed class InstallManifest
     public static void Delete(string destinationRoot)
     {
         var path = Path.Combine(destinationRoot, FileName);
+        RequireRegularManifest(path);
         if (File.Exists(path))
         {
             File.Delete(path);
+        }
+    }
+
+    private static void RequireRegularManifest(string path)
+    {
+        try
+        {
+            if (new FileInfo(path).LinkTarget is not null ||
+                (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new PackageSkillsException(
+                    $"The install manifest '{path}' must be a regular file, not a symbolic link or reparse point. " +
+                    "Replace the manifest link with a regular file before trying again.");
+            }
+        }
+        catch (FileNotFoundException) { }
+        catch (DirectoryNotFoundException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            throw CannotRead(path, "its file entry could not be inspected", error);
         }
     }
 }

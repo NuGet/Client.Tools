@@ -73,6 +73,11 @@ do not actually reference.
 
 `--target` and `--package` cannot combine, because both options answer the same question.
 
+NuGet's version parser checks exact versions, including the older one-, two-, and four-part
+forms. Invalid prerelease or metadata labels are rejected. Package comparisons normalize
+padding and letter case and ignore build metadata, so `1.10` and `1.10.0+build.1` identify the
+same release. Reports retain the version text that you supplied.
+
 When you name packages explicitly, the tool touches only the packages you name. It leaves every
 other installed skill alone. A target describes the project's complete set of packages. Because
 of this, a target install can also tell you which installed skills belong to a package that the
@@ -467,6 +472,11 @@ warning instead of blocking installation.
 
 ## How it works
 
+Auto-detection checks the top level before nested targets, and prefers solutions over projects
+within each stage. It never enters `bin`, `obj`, `.git`, `node_modules`, or `artifacts`, regardless
+of letter case. It skips inaccessible children and directory links. An explicitly named target
+directory can still be a link, but an unreadable requested directory produces an error.
+
 1. `dotnet list <target> package --format json` finds the resolved direct packages. The tool
    never restores a project on its own. The .NET 10 SDK restores the project during this step,
    when it needs to. An earlier SDK instead says that the target needs to be restored first. When
@@ -500,8 +510,8 @@ skill from every other repository that uses that package.
 `.dotnet-package-skills.json` records what the tool copied in. `install` removes only the paths
 listed there, when a package moves to a new version. `uninstall` removes only those listed paths
 too. Neither command scans arbitrary folders. Keep hand-written guidance in a separate, untracked
-folder. This folder is still subject to the v1 case-variant and linked-manifest limitations that
-this document describes.
+folder. This folder is still subject to the v1 case-variant limitations that this document
+describes.
 
 When that manifest exists but the tool cannot read it, `install` and `uninstall` both stop
 without changing anything. They keep the file in place so you can repair it. Resolve any merge
@@ -512,7 +522,8 @@ not guess which existing folders it owns.
 The tool also refuses a manifest in three other cases. It refuses a manifest that names a newer
 format version. Update the tool instead. It refuses a manifest that a pre-release build of this
 tool wrote. Move the skills folder aside and install again instead. It refuses a manifest where a
-package is missing its version, where a package ID is invalid, or where a skill is claimed twice.
+package has an invalid or missing exact version, where a package ID is invalid, or where a skill
+is claimed twice.
 
 A skill name must identify a single folder directly inside the destination. The tool rejects a
 name that ends in a dot or a space, including the name `...`, because Windows can resolve such a
@@ -521,11 +532,11 @@ name blocks both install and uninstall, including interactive mode and dry-run m
 tool changes any skill file or manifest byte.
 
 By default, the tool creates an ordinary manifest file, and it updates an existing manifest in
-place. V1 does not support a symbolic link or another kind of redirected manifest. The tool does
-not create such a link, and it does not protect a link's target. An ordinary file system
-operation can follow a link, including a link that already exists in a checked-out repository.
-Use a regular manifest file in your skills destination. A customer who provides a link is
-responsible for that link's effects.
+place. It rejects a manifest file that is a symbolic link or reparse point, including a dangling
+link, before install or uninstall changes skills. Use a regular manifest file instead.
+A destination directory reached through a link or junction remains supported. This check
+is limited to the manifest file entry; it does not guarantee safety against a link replaced
+concurrently between checking and writing.
 
 The tool serializes concurrent operations on the same destination. It rejects an interactive
 choice if ownership changed before the tool could apply that choice.

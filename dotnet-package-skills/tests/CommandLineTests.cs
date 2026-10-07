@@ -62,12 +62,25 @@ public class CommandLineTests
     [InlineData("1.2", "1.2.0")]
     [InlineData("1.2.0.0", "1.2.0")]
     [InlineData("1.2.0-RC.1", "1.2.0-rc.1")]
+    [InlineData("01.02.0-BETA.1+Build.A", "1.2-beta.1+Build.B")]
     public void Uninstall_filter_matching_normalizes_versions_for_both_modes(string filterVersion, string installedVersion)
     {
         var (id, version) = CommandLineBuilder.ParseUninstallFilter($"mockly@{filterVersion}");
 
         Assert.True(SkillInstaller.Matches(new TrackedSkill("Mockly", installedVersion, "usage"), id, version));
         Assert.False(SkillInstaller.Matches(new TrackedSkill("Other", installedVersion, "usage"), id, version));
+    }
+
+    [Theory]
+    [InlineData("1.0.0-alpha.")]
+    [InlineData("1.0.0+a..b")]
+    [InlineData("2147483648.0.0")]
+    [InlineData("1.2.3.4.5")]
+    public void Invalid_exact_versions_cannot_be_uninstall_filters_in_either_mode(string version)
+    {
+        Assert.Throws<PackageSkillsException>(() => CommandLineBuilder.ParseUninstallFilter($"Mockly@{version}"));
+        Assert.NotEmpty(CommandLineBuilder.Build().Parse(["uninstall", "--package", $"Mockly@{version}"]).Errors);
+        Assert.NotEmpty(CommandLineBuilder.Build().Parse(["uninstall", "-i", "--package", $"Mockly@{version}"]).Errors);
     }
 
     [Fact]

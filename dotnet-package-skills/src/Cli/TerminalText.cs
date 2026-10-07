@@ -191,6 +191,11 @@ internal static class TerminalText
                 return index;
             }
 
+            if (text[index] == '\x1b')
+            {
+                return index;
+            }
+
             kind = text[index++];
         }
 

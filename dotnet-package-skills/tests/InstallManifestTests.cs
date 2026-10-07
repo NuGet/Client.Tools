@@ -126,6 +126,50 @@ public class InstallManifestTests
         Assert.Empty(manifest.EnumerateSkills());
     }
 
+    [Theory]
+    [InlineData("1.0.0-alpha.")]
+    [InlineData("1.0.0+a..b")]
+    [InlineData("1.2.3.4.5")]
+    [InlineData("2147483648.0.0")]
+    [InlineData("1.*")]
+    [InlineData("[1.0,2.0)")]
+    public void Invalid_stored_versions_fail_before_reading_or_writing_ownership(string version)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var contents = $$$"""
+            {"version":1,"packages":{
+              "mockly":{"version":"{{{version}}}","skills":["usage"]}
+            }}
+            """;
+        var path = temp.CreateFile("dest/.dotnet-package-skills.json", contents);
+
+        var error = Assert.Throws<PackageSkillsException>(() => InstallManifest.Load(destination));
+        Assert.Contains("Could not read the install manifest", error.Message);
+        Assert.Contains("mockly", error.Message);
+        Assert.Contains("version", error.Message);
+        Assert.Equal(contents, File.ReadAllText(path));
+
+        var manifest = new InstallManifest();
+        Assert.Throws<PackageSkillsException>(() =>
+            manifest.SetSkills([new TrackedSkill("Mockly", version, "usage")]));
+        Assert.Empty(manifest.EnumerateSkills());
+    }
+
+    [Fact]
+    public void NuGet_metadata_and_padding_do_not_create_two_manifest_versions()
+    {
+        var manifest = new InstallManifest();
+        manifest.SetSkills(
+        [
+            new TrackedSkill("Mockly", "01.10.00.0-BETA.1+Build.A", "first"),
+            new TrackedSkill("mockly", "1.10-beta.1+Build.B", "second"),
+        ]);
+
+        Assert.Equal("1.10.0-beta.1", manifest.Packages["mockly"].Version);
+        Assert.Equal(["first", "second"], manifest.Packages["mockly"].Skills);
+    }
+
     [Fact]
     public void A_package_id_that_the_reader_would_refuse_is_never_written()
     {
@@ -292,6 +336,42 @@ public class InstallManifestTests
         Assert.Equal("new", Assert.Single(InstallManifest.Load(destination).EnumerateSkills()).Skill);
         Assert.Equal(path, Assert.Single(Directory.EnumerateFileSystemEntries(destination)));
         Assert.Null(new FileInfo(path).LinkTarget);
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData("load", false)]
+    [InlineData("save", false)]
+    [InlineData("delete", false)]
+    [InlineData("load", true)]
+    [InlineData("save", true)]
+    [InlineData("delete", true)]
+    public void Linked_manifest_entries_are_rejected_including_dangling_links(string operation, bool dangling)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var target = temp.Combine("outside.json");
+        if (!dangling) { File.WriteAllText(target, Contents); }
+        var path = Path.Combine(destination, InstallManifest.FileName);
+        File.CreateSymbolicLink(path, target);
+        try
+        {
+            var error = Assert.Throws<PackageSkillsException>(() =>
+            {
+                switch (operation)
+                {
+                    case "load": InstallManifest.Load(destination); break;
+                    case "save": new InstallManifest().Save(destination); break;
+                    case "delete": InstallManifest.Delete(destination); break;
+                }
+            });
+
+            Assert.Contains("regular", error.Message);
+            Assert.Contains(path, error.Message);
+            Assert.Equal(target, new FileInfo(path).LinkTarget);
+            if (dangling) { Assert.False(File.Exists(target)); }
+            else { Assert.Equal(Contents, File.ReadAllText(target)); }
+        }
+        finally { File.Delete(path); }
     }
 
     [Fact]
