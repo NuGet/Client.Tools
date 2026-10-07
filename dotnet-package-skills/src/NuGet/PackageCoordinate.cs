@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using NuGet.Versioning;
 
 namespace DotnetPackageSkills.NuGet;
 
@@ -64,13 +65,20 @@ public sealed partial record PackageCoordinate(string Id, string Version)
                  """);
         }
 
-        if (!ExactVersionPattern().IsMatch(version))
+        ParseVersion(version);
+
+        return new PackageCoordinate(id, version);
+    }
+
+    internal static NuGetVersion ParseVersion(string version)
+    {
+        if (!NuGetVersion.TryParse(version, out var parsed))
         {
             throw new PackageSkillsException(
                 $"'{version}' is not a version this tool recognises. Expected something like 1.10.0 or 2.0.0-beta.1.");
         }
 
-        return new PackageCoordinate(id, version);
+        return parsed;
     }
 
     internal static void ValidateId(string id)
@@ -99,6 +107,4 @@ public sealed partial record PackageCoordinate(string Id, string Version)
     [GeneratedRegex(@"^\w+([.-]\w+)*\z", RegexOptions.CultureInvariant)]
     private static partial Regex PackageIdPattern();
 
-    [GeneratedRegex(@"^\d+(\.\d+){0,3}(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$")]
-    private static partial Regex ExactVersionPattern();
 }

@@ -187,6 +187,35 @@ public class TerminalTextTests
         Assert.Equal(expected, TerminalText.Sanitize(input));
     }
 
+    [Theory]
+    [InlineData("before\u001b\u001b]52;c;SECRET\aafter", "beforeafter")]
+    [InlineData("before\u001b\u001b]52;c;SECRET\u001b\\after", "beforeafter")]
+    [InlineData("before\u001b\u001b\u001b]52;c;SECRET\aafter", "beforeafter")]
+    [InlineData("before\u001b\u001bPSECRET\u001b\\after", "beforeafter")]
+    [InlineData("before\u001b\u001b\u001bPSECRET\aafter", "beforeafter")]
+    [InlineData("before\u001b\u001b[31mvisible\u001b\u001b[0mafter", "beforevisibleafter")]
+    [InlineData("before\u001b\u001b\u001b[2Jafter", "beforeafter")]
+    [InlineData("before\u001b\u001b]52;c;SECRET", "before")]
+    [InlineData("before\u001b\u001bPSECRET", "before")]
+    [InlineData("before\u001b\u001b[123;", "before")]
+    [InlineData("before\u001b\u001b]52;c;SECRET\u001b", "before")]
+    [InlineData("before\u001b\u001b", "before")]
+    [InlineData("before\u001b\u001b\u001b", "before")]
+    public void Repeated_escape_introducers_do_not_expose_commands_or_payloads(string input, string expected)
+    {
+        Assert.Equal(expected, TerminalText.Sanitize(input));
+        Assert.Equal(expected, TerminalText.Sanitize(input, multiline: true));
+    }
+
+    [Theory]
+    [InlineData(false, "  before after  ")]
+    [InlineData(true, "  before\nafter  ")]
+    public void Repeated_escapes_preserve_surrounding_text_and_line_mode(bool multiline, string expected)
+    {
+        Assert.Equal(expected,
+            TerminalText.Sanitize("  before\u001b\u001b]52;c;SECRET\a\r\nafter  ", multiline, trim: false));
+    }
+
     [Fact]
     public void Authored_unicode_is_not_forced_to_ASCII()
     {

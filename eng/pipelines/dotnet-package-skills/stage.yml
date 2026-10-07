@@ -70,12 +70,13 @@ stages:
             $(_OfficialBuildArgs) /p:DotNetFinalVersionKind=$(_FinalVersionKind)
             /p:NETCORE_ENGINEERING_TELEMETRY=false
           displayName: Build, test, and package with Arcade
-        - task: CopyFiles@2
+        - pwsh: |
+            $packages = @(Get-ChildItem -LiteralPath "$(Build.SourcesDirectory)\artifacts\packages\Release\Shipping" -Filter 'dotnet-package-skills.*.nupkg' -File -ErrorAction Stop)
+            if ($packages.Count -eq 0) { throw 'No dotnet-package-skills NuGet package was produced.' }
+            $destination = "$(Build.ArtifactStagingDirectory)\packages"
+            [IO.Directory]::CreateDirectory($destination) | Out-Null
+            $packages | Copy-Item -Destination $destination -ErrorAction Stop
           displayName: Stage NuGet packages
-          inputs:
-            SourceFolder: $(Build.SourcesDirectory)\artifacts\packages\Release\Shipping
-            Contents: 'dotnet-package-skills.*.nupkg'
-            TargetFolder: $(Build.ArtifactStagingDirectory)\packages
         - ${{ if eq(parameters.isOfficialBuild, false) }}:
           - task: PublishPipelineArtifact@1
             inputs:

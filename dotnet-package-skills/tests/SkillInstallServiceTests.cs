@@ -62,6 +62,93 @@ public class SkillInstallServiceTests
         GlobalPackagesOverride = temp.Combine("packages"),
     };
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Invalid_SDK_versions_stop_each_install_mode_before_files_change(bool interactive, bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateFile("MyApp.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.0.0"))))
+            .Install(Request(temp));
+        var before = Snapshot(temp.Combine(".agents", "skills"));
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.0.0-alpha."))));
+        var request = Request(temp) with { DryRun = dryRun };
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+        {
+            var discovered = service.Discover(request);
+            if (interactive)
+            {
+                service.PrepareInteractiveInstall(request, discovered,
+                    SkillInstallService.InstalledSkills(discovered.Destination, temp.Path));
+            }
+            else
+            {
+                service.Install(request, discovered, null);
+            }
+        });
+
+        Assert.Contains("invalid exact version", error.Message);
+        Assert.DoesNotContain("missing from", error.Message);
+        Assert.Equal(before, Snapshot(temp.Combine(".agents", "skills")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Equivalent_reference_versions_do_not_conflict_or_make_skills_stale(bool interactive)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateFile("MyApp.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0-beta.1", "usage", "second");
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"),
+            Json(("Mockly", "01.10.0.0-BETA.1+Build.A"), ("mockly", "1.10-beta.1+Build.B"))));
+        var request = Request(temp);
+        var discovered = service.Discover(request);
+        Assert.Equal(1, discovered.PackagesScanned);
+        service.Install(request, discovered, new SkillChoice([discovered.Skills[0]]));
+        var installed = SkillInstallService.InstalledSkills(discovered.Destination, temp.Path);
+
+        var result = interactive
+            ? service.PrepareInteractiveInstall(request, service.Discover(request), installed)
+            : service.Install(request);
+
+        Assert.Empty(result.Removed);
+        Assert.Empty(result.Unreferenced);
+        Assert.Empty(service.Uninstall(".agents/skills", temp.Path, null, null, dryRun: true,
+            staleAgainst: [new PackageReferenceInfo("Mockly", "1.10.0-beta.1+Build.C")]));
+        Assert.Single(service.Uninstall(".agents/skills", temp.Path, "MOCKLY", "1.10-BETA.1+Build.D",
+            dryRun: true, only: [installed[0].Skill]));
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Interactive_ownership_reads_reject_linked_manifests_before_a_picker(bool dangling)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory(".agents", "skills");
+        var target = temp.Combine("outside.json");
+        const string contents = """{"version":1,"packages":{"mockly":{"version":"1.0.0","skills":["usage"]}}}""";
+        if (!dangling) { File.WriteAllText(target, contents); }
+        var path = Path.Combine(destination, InstallManifest.FileName);
+        File.CreateSymbolicLink(path, target);
+        try
+        {
+            var error = Assert.Throws<PackageSkillsException>(() =>
+                SkillInstallService.InstalledSkills(destination, temp.Path));
+
+            Assert.Contains("regular", error.Message);
+            if (dangling) { Assert.False(File.Exists(target)); }
+            else { Assert.Equal(contents, File.ReadAllText(target)); }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void Install_copies_skills_from_packages_that_ship_them_and_ignores_the_rest()
     {

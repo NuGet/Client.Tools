@@ -11,7 +11,9 @@ public class PackageCoordinateTests
     [InlineData("_Acme@1.0.0", "_Acme", "1.0.0")]
     [InlineData("Acme_@1.0.0", "Acme_", "1.0.0")]
     [InlineData("Widgets@2.0", "Widgets", "2.0")]
+    [InlineData("Widgets@1", "Widgets", "1")]
     [InlineData("Widgets@1.2.3.4", "Widgets", "1.2.3.4")]
+    [InlineData("Widgets@01.02.003.0-BETA.1+build.001", "Widgets", "01.02.003.0-BETA.1+build.001")]
     [InlineData("Widgets@1.2.3+sha.abc", "Widgets", "1.2.3+sha.abc")]
     [InlineData("  Mockly@1.10.0  ", "Mockly", "1.10.0")]
     [InlineData("Contoso.Überlib@1.0.0", "Contoso.Überlib", "1.0.0")]
@@ -56,6 +58,17 @@ public class PackageCoordinateTests
     [InlineData("Mockly@@1.0.0")]
     [InlineData("Mockly@not-a-version")]
     [InlineData("Mockly@v1.0.0")]
+    [InlineData("Mockly@1.0.0-alpha.")]
+    [InlineData("Mockly@1.0.0+a..b")]
+    [InlineData("Mockly@1.0.0-")]
+    [InlineData("Mockly@1.0.0+")]
+    [InlineData("Mockly@1.0.0-a..b")]
+    [InlineData("Mockly@1.0.0-.alpha")]
+    [InlineData("Mockly@1.0.0+a.")]
+    [InlineData("Mockly@1.0.0-beta.01")]
+    [InlineData("Mockly@1.2.3.4.5")]
+    [InlineData("Mockly@2147483648.0.0")]
+    [InlineData("Mockly@1.0.0.2147483648")]
     [InlineData("../evil@1.0.0")]
     [InlineData("path/to/thing@1.0.0")]
     [InlineData("Contoso..Widgets@1.0.0")]
@@ -67,4 +80,9 @@ public class PackageCoordinateTests
     [Fact]
     public void ToString_round_trips() =>
         Assert.Equal("Mockly@1.10.0", PackageCoordinate.Parse("Mockly@1.10.0").ToString());
+
+    [Fact]
+    public void Display_retains_the_trimmed_original_coordinate_spelling() =>
+        Assert.Equal("Mockly@01.10-BETA.1+Build.01",
+            PackageCoordinate.Parse("  Mockly  @  01.10-BETA.1+Build.01  ").ToString());
 }

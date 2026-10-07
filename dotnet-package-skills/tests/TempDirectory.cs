@@ -30,6 +30,24 @@ public sealed class TempDirectory : IDisposable
         return full;
     }
 
+    internal static string? SymbolicLinkSkipReason { get; } = CheckSymbolicLinkCapability();
+
+    private static string? CheckSymbolicLinkCapability()
+    {
+        using var temp = new TempDirectory();
+        try
+        {
+            File.CreateSymbolicLink(temp.Combine("file-link"), temp.Combine("missing-file"));
+            Directory.CreateSymbolicLink(temp.Combine("directory-link"), temp.CreateDirectory("directory"));
+            return null;
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or PlatformNotSupportedException ||
+            error is IOException && (error.HResult & 0xffff) == 1314)
+        {
+            return $"This host cannot create the real symbolic links required by this test: {error.Message}";
+        }
+    }
+
     /// <summary>Builds an extracted-package layout with a bundled skill, mirroring the NuGet cache.</summary>
     public string CreatePackageWithSkill(string packageId, string version, params string[] skillNames)
     {
@@ -57,5 +75,18 @@ public sealed class TempDirectory : IDisposable
         {
             // A locked file in a temp directory is not worth failing a test over.
         }
+    }
+}
+
+internal sealed class SymbolicLinkTheoryAttribute : TheoryAttribute
+{
+    public SymbolicLinkTheoryAttribute() => Skip = TempDirectory.SymbolicLinkSkipReason;
+}
+
+internal sealed class WindowsTheoryAttribute : TheoryAttribute
+{
+    public WindowsTheoryAttribute()
+    {
+        if (!OperatingSystem.IsWindows()) { Skip = "This test exercises Windows directory access rules."; }
     }
 }

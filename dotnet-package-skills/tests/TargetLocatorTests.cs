@@ -1,4 +1,6 @@
 using DotnetPackageSkills.NuGet;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace DotnetPackageSkills.Tests;
 
@@ -114,5 +116,141 @@ public class TargetLocatorTests
         var exception = Assert.Throws<PackageSkillsException>(() => TargetLocator.Resolve("Ghost.sln", temp.Path));
 
         Assert.Contains("Ghost.sln", exception.Message);
+    }
+
+    [WindowsTheory]
+    [InlineData("bin")]
+    [InlineData("OBJ")]
+    [InlineData(".git")]
+    [InlineData("NODE_MODULES")]
+    [InlineData("artifacts")]
+    public void Ignored_subtrees_are_pruned_without_opening_them(string ignored)
+    {
+        using var temp = new TempDirectory();
+        var blocked = temp.CreateDirectory("nested", ignored);
+        temp.CreateFile($"nested/{ignored}/Hidden.slnx");
+        var expected = temp.CreateFile("src/Real.csproj");
+
+        WithBlockedEnumeration(blocked, () => Assert.Equal(expected, TargetLocator.Detect(temp.Path)));
+    }
+
+    [WindowsTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Inaccessible_children_do_not_hide_a_readable_sibling_but_explicit_roots_report_errors(bool explicitRoot)
+    {
+        using var temp = new TempDirectory();
+        var blocked = temp.CreateDirectory("inaccessible");
+        temp.CreateFile("inaccessible/Hidden.slnx");
+        var expected = temp.CreateFile("src/Real.csproj");
+
+        WithBlockedEnumeration(blocked, () =>
+        {
+            if (explicitRoot)
+            {
+                var error = Assert.Throws<PackageSkillsException>(() => TargetLocator.Resolve("inaccessible", temp.Path));
+                Assert.Contains("read", error.Message, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("inaccessible", error.Message);
+            }
+            else
+            {
+                Assert.Equal(expected, TargetLocator.Detect(temp.Path));
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData("bin")]
+    [InlineData("OBJ")]
+    [InlineData(".GIT")]
+    [InlineData("node_modules")]
+    [InlineData("ARTIFACTS")]
+    public void Every_ignored_name_is_excluded_at_any_depth(string ignored)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateFile($"nested/{ignored}/Hidden.slnx");
+        var expected = temp.CreateFile("src/Real.vbproj");
+
+        Assert.Equal(expected, TargetLocator.Detect(temp.Path));
+        Assert.EndsWith("Hidden.slnx", TargetLocator.Resolve(Path.Combine("nested", ignored), temp.Path));
+    }
+
+    [Theory]
+    [InlineData("src/A.sln", "src/Z.slnx", "src/Z.slnx")]
+    [InlineData("src/A.fsproj", "src/Z.csproj", "src/Z.csproj")]
+    [InlineData("src/A.vbproj", "src/Z.fsproj", "src/Z.fsproj")]
+    [InlineData("src/Z/A.sln", "src/A/Z.sln", "src/A/Z.sln")]
+    [InlineData("Root.csproj", "src/A.slnx", "Root.csproj")]
+    public void Target_ranking_keeps_extension_stage_and_ordinal_path_precedence(
+        string first, string second, string expected)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateFile(first);
+        temp.CreateFile(second);
+
+        Assert.Equal(temp.Combine(expected.Split('/')), TargetLocator.Detect(temp.Path));
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Automatic_search_skips_directory_links_but_explicit_targets_accept_them(bool explicitTarget)
+    {
+        using var temp = new TempDirectory();
+        var root = temp.CreateDirectory("repo");
+        var outside = temp.CreateDirectory("outside");
+        temp.CreateFile("outside/App.slnx");
+        var link = Path.Combine(root, "linked");
+        Directory.CreateSymbolicLink(link, outside);
+        try
+        {
+            if (explicitTarget) { Assert.EndsWith("App.slnx", TargetLocator.Resolve("linked", root)); }
+            else { Assert.Throws<PackageSkillsException>(() => TargetLocator.Detect(root)); }
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Automatic_directory_link_cycles_do_not_recurse(bool parent)
+    {
+        using var temp = new TempDirectory();
+        var root = temp.CreateDirectory("repo");
+        var child = temp.CreateDirectory("repo", "nested");
+        var link = Path.Combine(child, "cycle");
+        Directory.CreateSymbolicLink(link, parent ? root : child);
+        try
+        {
+            Assert.Throws<PackageSkillsException>(() => TargetLocator.Detect(root));
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    private static void WithBlockedEnumeration(string path, Action check)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("This fixture uses Windows directory access rules.");
+        }
+
+        var directory = new DirectoryInfo(path);
+        var original = directory.GetAccessControl(AccessControlSections.Access)
+            .GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var denied = directory.GetAccessControl(AccessControlSections.Access);
+        denied.AddAccessRule(new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny));
+        directory.SetAccessControl(denied);
+        try
+        {
+            Assert.Throws<UnauthorizedAccessException>(() => Directory.EnumerateFileSystemEntries(path).ToArray());
+            check();
+        }
+        finally
+        {
+            var restored = new DirectorySecurity();
+            restored.SetSecurityDescriptorSddlForm(original, AccessControlSections.Access);
+            directory.SetAccessControl(restored);
+        }
     }
 }

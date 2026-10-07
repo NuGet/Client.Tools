@@ -335,13 +335,12 @@ public class OutputWriterTests
     }
 
     [Fact]
-    public void A_manifest_clipboard_payload_is_safe_to_preview_without_rewriting_identity_or_files()
+    public void A_manifest_clipboard_payload_is_rejected_without_rewriting_identity_or_files()
     {
         using var temp = new TempDirectory();
         var destination = temp.CreateDirectory("dest");
         var skillFile = temp.CreateFile("dest/example-skill/SKILL.md", "installed guidance");
         var handwritten = temp.CreateFile("dest/our-own-skill/SKILL.md", "handwritten guidance");
-        // Package ids are validated when the manifest is read, so the version carries the payload.
         var version = "1.0.0" + ClipboardControl;
         var manifest = temp.CreateFile("dest/.dotnet-package-skills.json", JsonSerializer.Serialize(new
         {
@@ -352,15 +351,14 @@ public class OutputWriterTests
             },
         }));
         var before = File.ReadAllBytes(manifest);
-        var removed = new SkillInstaller().Uninstall(destination, null, null, dryRun: true);
+        var error = Assert.Throws<PackageSkillsException>(() =>
+            new SkillInstaller().Uninstall(destination, null, null, dryRun: true));
         using var text = new StringWriter();
 
-        new OutputWriter(text).WriteUninstallReport(removed, destination, dryRun: true);
+        new OutputWriter(text, text).WriteError(error.Message);
 
         AssertPlainText(text.ToString());
-        Assert.Contains("example-skill (example 1.0.0)", text.ToString());
-        Assert.Equal("example", Assert.Single(removed).Package);
-        Assert.Equal(version, Assert.Single(removed).Version);
+        Assert.Contains("exact NuGet version", text.ToString());
         Assert.Equal(before, File.ReadAllBytes(manifest));
         Assert.Equal("installed guidance", File.ReadAllText(skillFile));
         Assert.Equal("handwritten guidance", File.ReadAllText(handwritten));

@@ -1,4 +1,5 @@
 using DotnetPackageSkills.NuGet;
+using NuGet.Versioning;
 
 namespace DotnetPackageSkills.Skills;
 
@@ -47,6 +48,8 @@ public sealed class SkillInstaller
                 .GroupBy(skill => skill.PackageId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().PackageVersion, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, string>(offered, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var version in versions.Values) { PackageCoordinate.ParseVersion(version); }
 
         using var destinationLock = DestinationLock.Acquire(destinationRoot);
         var manifest = InstallManifest.Load(destinationRoot);
@@ -187,7 +190,7 @@ public sealed class SkillInstaller
     }
 
     internal static bool SameVersion(string left, string right) =>
-        PackagePathResolver.NormalizeVersion(left).Equals(PackagePathResolver.NormalizeVersion(right), StringComparison.Ordinal);
+        VersionComparer.VersionRelease.Equals(PackageCoordinate.ParseVersion(left), PackageCoordinate.ParseVersion(right));
 
     private static PackageSkillsException NameWouldChangeOwner(
         IReadOnlyList<TrackedSkill> stranded,
@@ -248,6 +251,8 @@ public sealed class SkillInstaller
         IReadOnlyCollection<TrackedSkill>? expectedInstalled = null,
         IReadOnlyCollection<PackageReferenceInfo>? staleAgainst = null)
     {
+        if (packageVersion is not null) { PackageCoordinate.ParseVersion(packageVersion); }
+
         using var destinationLock = DestinationLock.Acquire(destinationRoot);
         var manifest = InstallManifest.Load(destinationRoot);
 
@@ -301,8 +306,7 @@ public sealed class SkillInstaller
 
         // Compare normalized, so 1.2 and 1.2.0 identify the same installed folder.
         return packageVersion is null ||
-               PackagePathResolver.NormalizeVersion(entry.Version)
-                   .Equals(PackagePathResolver.NormalizeVersion(packageVersion), StringComparison.OrdinalIgnoreCase);
+               SameVersion(entry.Version, packageVersion);
     }
 
     private static void CheckOwnershipSnapshot(

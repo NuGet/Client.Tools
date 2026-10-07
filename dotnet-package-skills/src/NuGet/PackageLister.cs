@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetPackageSkills.Infrastructure;
+using NuGet.Versioning;
 
 namespace DotnetPackageSkills.NuGet;
 
@@ -110,12 +111,20 @@ public sealed class PackageLister(DotnetCli dotnet)
                 // floating version or a version managed through Central Package Management.
                 var version = Coalesce(entry.ResolvedVersion, entry.RequestedVersion);
 
-                if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(version))
+                if (string.IsNullOrEmpty(id))
                 {
                     continue;
                 }
 
-                var key = (id.ToLowerInvariant(), version.ToLowerInvariant());
+                PackageCoordinate.ValidateId(id);
+                if (version is null || !NuGetVersion.TryParse(version, out _))
+                {
+                    throw new PackageSkillsException(
+                        $"'dotnet list package' reported an invalid exact version '{version}' for package '{id}'. " +
+                        "Restore or fix the target's package references, then try again.");
+                }
+
+                var key = (id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(version));
                 found[key] = new PackageReferenceInfo(id, version);
             }
         }

@@ -54,66 +54,75 @@ public static class TargetLocator
             throw new PackageSkillsException($"Directory does not exist: {directory}");
         }
 
-        foreach (var extensions in new[] { SolutionExtensions, ProjectExtensions })
+        var (topLevel, children) = ReadDirectory(directory, explicitRoot: true);
+        if (BestTarget(topLevel) is { } rootTarget) { return rootTarget; }
+
+        var nested = new List<string>();
+        var pending = new Stack<string>(children);
+        while (pending.TryPop(out var child))
         {
-            var match = EnumerateFiles(directory, extensions, SearchOption.TopDirectoryOnly).FirstOrDefault();
-            if (match is not null)
-            {
-                return match;
-            }
+            var (files, directories) = ReadDirectory(child, explicitRoot: false);
+            nested.AddRange(files);
+            foreach (var descendant in directories) { pending.Push(descendant); }
         }
 
-        foreach (var extensions in new[] { SolutionExtensions, ProjectExtensions })
-        {
-            var match = EnumerateFiles(directory, extensions, SearchOption.AllDirectories)
-                .Where(path => !IsIgnored(path, directory))
-                .FirstOrDefault();
-            if (match is not null)
-            {
-                return match;
-            }
-        }
+        if (BestTarget(nested) is { } nestedTarget) { return nestedTarget; }
 
         throw new PackageSkillsException(
             $"No solution or project found under {directory}. " +
             "Pass one explicitly, for example: --target src/MyApp.sln");
     }
 
-    private static IEnumerable<string> EnumerateFiles(string directory, string[] extensions, SearchOption option)
+    private static (List<string> Files, List<string> Children) ReadDirectory(string directory, bool explicitRoot)
     {
-        IEnumerable<string> files;
+        var files = new List<string>();
+        var children = new List<string>();
         try
         {
-            files = Directory.EnumerateFiles(directory, "*", option);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
-
-        // Rank by the extension's position in the list, so preference between formats
-        // (.slnx ahead of .sln) is not left to how the file names happen to sort.
-        return files
-            .Select(file => new
+            foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
             {
-                File = file,
-                Rank = Array.FindIndex(
-                    extensions,
-                    extension => extension.Equals(Path.GetExtension(file), StringComparison.OrdinalIgnoreCase)),
-            })
-            .Where(candidate => candidate.Rank >= 0)
-            .OrderBy(candidate => candidate.Rank)
-            .ThenBy(candidate => candidate.File, StringComparer.Ordinal)
-            .Select(candidate => candidate.File);
+                if (entry is DirectoryInfo child)
+                {
+                    if (!IgnoredDirectories.Contains(child.Name, StringComparer.OrdinalIgnoreCase) &&
+                        (child.Attributes & FileAttributes.ReparsePoint) == 0)
+                    {
+                        children.Add(child.FullName);
+                    }
+                }
+                else if (Rank(entry.FullName) >= 0)
+                {
+                    files.Add(entry.FullName);
+                }
+            }
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            if (explicitRoot)
+            {
+                throw new PackageSkillsException(
+                    $"Could not read target directory '{directory}'. Check its permissions or pass a readable --target.",
+                    error);
+            }
+
+            return ([], []);
+        }
+        catch (DirectoryNotFoundException) when (!explicitRoot) { return ([], []); }
+
+        return (files, children);
     }
 
-    private static bool IsIgnored(string path, string root)
-    {
-        var relative = Path.GetRelativePath(root, path);
-        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    private static string? BestTarget(IEnumerable<string> files) =>
+        files.OrderBy(Rank).ThenBy(file => file, StringComparer.Ordinal).FirstOrDefault();
 
-        // The file name itself is never a directory match.
-        return segments.Take(segments.Length - 1)
-            .Any(segment => IgnoredDirectories.Contains(segment, StringComparer.OrdinalIgnoreCase));
+    private static int Rank(string file)
+    {
+        var extension = Path.GetExtension(file);
+        var solution = Array.FindIndex(SolutionExtensions,
+            candidate => candidate.Equals(extension, StringComparison.OrdinalIgnoreCase));
+        if (solution >= 0) { return solution; }
+
+        var project = Array.FindIndex(ProjectExtensions,
+            candidate => candidate.Equals(extension, StringComparison.OrdinalIgnoreCase));
+        return project < 0 ? -1 : SolutionExtensions.Length + project;
     }
 }

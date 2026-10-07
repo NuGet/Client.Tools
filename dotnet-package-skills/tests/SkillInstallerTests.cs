@@ -829,6 +829,77 @@ public class SkillInstallerTests
         Assert.True(File.Exists(Path.Combine(destination, "mockly", "SKILL.md")));
     }
 
+    [SymbolicLinkTheory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public void Linked_manifests_stop_install_and_uninstall_before_skill_changes(
+        bool uninstall, bool dryRun, bool dangling)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        _installer.Install(destination, [Skill(temp, "Mockly", "1.0.0", "usage")], dryRun: false);
+        var handwritten = temp.CreateFile("dest/handwritten/SKILL.md", "ours");
+        var tracked = File.ReadAllBytes(Path.Combine(destination, "usage", "SKILL.md"));
+        var path = Path.Combine(destination, InstallManifest.FileName);
+        var original = File.ReadAllBytes(path);
+        var target = temp.Combine("outside.json");
+        if (!dangling) { File.WriteAllBytes(target, original); }
+        File.Delete(path);
+        File.CreateSymbolicLink(path, target);
+        try
+        {
+            var error = Assert.Throws<PackageSkillsException>(() =>
+            {
+                if (uninstall) { _installer.Uninstall(destination, null, null, dryRun); }
+                else { _installer.Install(destination, [Skill(temp, "Mockly", "2.0.0", "next")], dryRun); }
+            });
+
+            Assert.Contains("regular", error.Message);
+            Assert.Equal(tracked, File.ReadAllBytes(Path.Combine(destination, "usage", "SKILL.md")));
+            Assert.Equal("ours", File.ReadAllText(handwritten));
+            Assert.False(Directory.Exists(Path.Combine(destination, "next")));
+            Assert.Equal(target, new FileInfo(path).LinkTarget);
+            if (dangling) { Assert.False(File.Exists(target)); }
+            else { Assert.Equal(original, File.ReadAllBytes(target)); }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_linked_destination_directory_still_supports_regular_manifests(bool uninstall)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var alias = temp.Combine("alias");
+        Directory.CreateSymbolicLink(alias, destination);
+        try
+        {
+            var skill = Skill(temp, "Mockly", "1.0.0", "usage");
+            _installer.Install(alias, [skill], dryRun: false);
+            Assert.Single(InstallManifest.Load(alias).EnumerateSkills());
+            if (uninstall)
+            {
+                temp.CreateFile("dest/handwritten/SKILL.md", "ours");
+                Assert.Single(_installer.Uninstall(alias, null, null, dryRun: false));
+                Assert.Equal("ours", File.ReadAllText(temp.Combine("dest", "handwritten", "SKILL.md")));
+            }
+            else
+            {
+                _installer.Install(alias, [skill], dryRun: false);
+                Assert.Single(InstallManifest.Load(destination).EnumerateSkills());
+            }
+        }
+        finally { Directory.Delete(alias); }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -926,6 +997,22 @@ public class SkillInstallerTests
         Assert.False(Directory.Exists(Path.Combine(destination, skillName)));
         Assert.False(File.Exists(Path.Combine(destination, InstallManifest.FileName)));
         Assert.Equal("ours", File.ReadAllText(handwritten));
+    }
+
+    [Theory]
+    [InlineData("1.10", "1.10.0+Build.99", true)]
+    [InlineData("01.02.003.0-BETA.1+Build.A", "1.2.3-beta.1+Build.B", true)]
+    [InlineData("1.2.3.4", "1.2.3.0", false)]
+    [InlineData("1.2.3-beta.1", "1.2.3-beta.2", false)]
+    [InlineData("1.2.3-beta", "1.2.3", false)]
+    public void Version_identity_drives_stale_checks_and_uninstall_filters(
+        string installed, string referenced, bool equivalent)
+    {
+        var entry = new TrackedSkill("Mockly", installed, "usage");
+
+        Assert.Equal(equivalent, SkillInstaller.SameVersion(installed, referenced));
+        Assert.Equal(!equivalent, SkillInstaller.IsStale(entry, [new PackageReferenceInfo("mockly", referenced)]));
+        Assert.Equal(equivalent, SkillInstaller.Matches(entry, "MOCKLY", referenced));
     }
 
     private static (string Path, string Contents)[] Snapshot(string root) =>

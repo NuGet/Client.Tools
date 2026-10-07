@@ -150,6 +150,44 @@ public class PackageListerTests
         Assert.Equal(["1.0.0", "2.0.0"], packages.Select(p => p.Version));
     }
 
+    [Theory]
+    [InlineData("1.10", "1.10.0")]
+    [InlineData("01.02.003.0-BETA.1+Build.A", "1.2.3-beta.1+build.B")]
+    public void Parse_deduplicates_equivalent_NuGet_versions(string first, string second)
+    {
+        var json = $$"""
+            {"projects":[{"frameworks":[{"topLevelPackages":[
+              {"id":"Mockly","resolvedVersion":"{{first}}"},
+              {"id":"mockly","resolvedVersion":"{{second}}"}
+            ]}]}]}
+            """;
+
+        Assert.Single(PackageLister.Parse(json));
+    }
+
+    [Theory]
+    [InlineData("1.0.0-alpha.")]
+    [InlineData("1.0.0+a..b")]
+    [InlineData("1.*")]
+    [InlineData("[1.0,2.0)")]
+    [InlineData("2147483648.0.0")]
+    [InlineData("1.2.3.4.5")]
+    [InlineData("")]
+    public void Parse_reports_invalid_SDK_versions_instead_of_missing_cache_packages(string version)
+    {
+        var json = $$"""
+            {"projects":[{"frameworks":[{"topLevelPackages":[
+              {"id":"Mockly","resolvedVersion":"{{version}}"}
+            ]}]}]}
+            """;
+
+        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+
+        Assert.Contains("Mockly", error.Message);
+        Assert.Contains("version", error.Message);
+        Assert.Contains("dotnet list", error.Message);
+    }
+
     [Fact]
     public void Parse_prefers_the_resolved_version_over_the_requested_one()
     {
