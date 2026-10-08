@@ -110,7 +110,7 @@ Run `install` again whenever your packages change; there's no separate update co
 2 installed skills belong to a package that the target no longer references:
   fabrikam.testing-fakes (fabrikam.testing 1.4.0)
   fabrikam.testing-fixtures (fabrikam.testing 1.4.0)
-Run 'dotnet-package-skills uninstall --stale' to remove them.
+Use uninstall with --stale to remove skills that no longer match the project.
 ```
 
 > [!WARNING]
@@ -120,7 +120,7 @@ With `--package`, `install` does the same for the packages that you name, and le
 
 The skills folder holds the skills of only one version of each package. If the target references a package at more than one version, or `--package` names more than one, `install` stops and names the versions. [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) can help align package versions across the projects in a repository.
 
-Each tracked skill belongs to the package that it was copied from, and changing one package's version never removes or replaces another package's skills. Skill names are compared without regard to case. If two packages ship a skill with the same name, only one of them is copied. `install` also never overwrites a folder that it didn't install. It lists the skills that it skips in the report under `Warning:`. If a package moves to a version that no longer ships a skill, and another package ships a skill with that name, `install` stops without changing anything, instead of handing the name to the other package. Run the `uninstall --package <ID>` command that the error suggests, and then run `install` again to copy the other package's skill.
+Each tracked skill belongs to the package that it was copied from, and changing one package's version never removes or replaces another package's skills. Skill names are compared without regard to case. If two packages ship a skill with the same name, only one of them is copied. `install` also never overwrites a folder that it didn't install. It lists the skills that it skips in the report under `Warning:`. If a package moves to a version that no longer ships a skill, and another package ships a skill with that name, `install` stops without changing anything, instead of handing the name to the other package. Use `uninstall` with `--package` to remove the current owner's skills, and then run `install` again to copy the other package's skill.
 
 ### Remove skills
 
@@ -228,12 +228,12 @@ Each of these errors stops the command before it changes any skills or the manif
 | `dotnet list package` fails, for example because the target isn't restored. | Fix what it reports, for example by running `dotnet restore`, and then run the command again. |
 | `install` reports packages that are missing from the NuGet global packages folder. | Restore the target into that folder, and then run `install` again. If you use `--global-packages`, restore into the same folder, for example with `dotnet restore --packages <PATH>`. |
 | The target references a package at more than one version, or `--package` names more than one. | Align the versions, for example with [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management). With `--package`, name one version of each package. |
-| `install --interactive` says that installed skills don't match the target, or that a named package is installed at another version. | Run the `uninstall` command that the error suggests, and then try again. To switch a package to another version instead, run `install` without `--interactive`. |
+| `install --interactive` says that installed skills don't match the target, or that a named package is installed at another version. | Use `uninstall` with `--stale` for stale skills, or with `--package` for a named package installed at another version. Then try again. To switch a package to another version instead, run `install` without `--interactive`. |
 | The manifest can't be read. | Resolve any merge conflict in `.dotnet-package-skills.json`, or restore the file from source control. If the error says that the manifest uses a newer format version, update the tool. If it says that a pre-release version of the tool wrote the manifest, move the skills folder aside, and then run `install` again. |
 | Another run of the command is using the skills folder. | The command waits up to 30 seconds for the other run to finish, and then stops. Run the command again after the other run finishes. |
 | The terminal is too small for the checklist. | Enlarge the window, or run the command without `--interactive`. |
 
-For other errors, run the command that the error suggests. Suggested commands repeat the `--target` and `--destination` that you specified, so you can run them as printed.
+Removal messages give option guidance, not a paste-ready command with repository paths. For stale removal, select the intended target. For any removal, use the skills destination you installed to.
 
 If a file system error interrupts a copy or removal, the command reports it but doesn't undo the changes that it already made, and copied folders might be missing from the manifest. Move the affected skill folders aside, and then run the command again.
 
