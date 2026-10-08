@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <UseDotNetCertificate>true</UseDotNetCertificate>
+  </PropertyGroup>
+  <ItemGroup>
+    <ItemsToSign Remove="@(ItemsToSign)" />
+    <ItemsToSign Include="$(ArtifactsShippingPackagesDir)dotnet-package-skills.*.nupkg" />
+    <ItemsToSign Include="$(ArtifactsBinDir)DotnetPackageSkills\$(Configuration)\net8.0\dotnet-package-skills.dll" />
+    <ItemsToSign Include="$(ArtifactsBinDir)DotnetPackageSkills\$(Configuration)\net10.0\dotnet-package-skills.dll" />
+    <!-- Authenticode signing must not assign new strong-name identities. -->
+    <StrongNameSignInfo Remove="@(StrongNameSignInfo)" />
+    <FileSignInfo Include="YamlDotNet.dll" CertificateName="3PartySHA2" />
+  </ItemGroup>
+</Project>

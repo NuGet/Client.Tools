@@ -1,0 +1,84 @@
+parameters:
+- name: isOfficialBuild
+  type: boolean
+  default: false
+- name: releaseBuild
+  type: boolean
+  default: false
+- name: jobsTemplate
+  type: string
+  default: /eng/common/templates/jobs/jobs.yml
+
+stages:
+- stage: DotnetPackageSkills
+  jobs:
+  - template: ${{ parameters.jobsTemplate }}
+    parameters:
+      runAsPublic: ${{ not(parameters.isOfficialBuild) }}
+      enableMicrobuild: ${{ parameters.isOfficialBuild }}
+      enableTelemetry: false
+      enablePublishBuildAssets: false
+      testResultsFormat: vstest
+      artifacts:
+        publish:
+          logs: true
+      jobs:
+      - job: Windows
+        variables:
+        - name: _BuildConfig
+          value: Release
+        - name: DOTNET_INSTALL_DIR
+          value: $(Build.SourcesDirectory)\.dotnet
+        - name: _FinalVersionKind
+          ${{ if and(parameters.isOfficialBuild, parameters.releaseBuild) }}:
+            value: release
+          ${{ else }}:
+            value: ''
+        - ${{ if eq(parameters.isOfficialBuild, true) }}:
+          - name: _SignType
+            value: real
+          - name: _TeamName
+            value: $(DotnetPackageSkillsSigningTeamName)
+          - name: _OfficialBuildArgs
+            value: -sign /p:DotNetSignType=real /p:OfficialBuildId=$(Build.BuildNumber) /p:TeamName=$(_TeamName)
+        - ${{ else }}:
+          - name: _OfficialBuildArgs
+            value: ''
+        ${{ if eq(parameters.isOfficialBuild, true) }}:
+          templateContext:
+            outputs:
+            - output: pipelineArtifact
+              targetPath: $(Build.ArtifactStagingDirectory)\packages
+              artifactName: dotnet-package-skills-packages
+              condition: succeeded()
+        steps:
+        - task: UseDotNet@2
+          displayName: Install the root-pinned SDK
+          inputs:
+            packageType: sdk
+            useGlobalJson: true
+            workingDirectory: $(Build.SourcesDirectory)
+            installationPath: $(DOTNET_INSTALL_DIR)
+        - task: UseDotNet@2
+          displayName: Install the .NET 8 test runtime
+          inputs:
+            packageType: runtime
+            version: 8.0.x
+            installationPath: $(DOTNET_INSTALL_DIR)
+        - script: >-
+            eng\common\build.cmd -restore -build -test -pack -configuration Release -ci
+            $(_OfficialBuildArgs) /p:DotNetFinalVersionKind=$(_FinalVersionKind)
+            /p:NETCORE_ENGINEERING_TELEMETRY=false
+          displayName: Build, test, and package with Arcade
+        - pwsh: |
+            $packages = @(Get-ChildItem -LiteralPath "$(Build.SourcesDirectory)\artifacts\packages\Release\Shipping" -Filter 'dotnet-package-skills.*.nupkg' -File -ErrorAction Stop)
+            if ($packages.Count -eq 0) { throw 'No dotnet-package-skills NuGet package was produced.' }
+            $destination = "$(Build.ArtifactStagingDirectory)\packages"
+            [IO.Directory]::CreateDirectory($destination) | Out-Null
+            $packages | Copy-Item -Destination $destination -ErrorAction Stop
+          displayName: Stage NuGet packages
+        - ${{ if eq(parameters.isOfficialBuild, false) }}:
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)\packages
+              artifact: dotnet-package-skills-packages

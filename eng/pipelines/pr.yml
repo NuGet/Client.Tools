@@ -11,22 +11,4 @@ pool:
   - ImageOverride -equals windows.vs2026.amd64.open
 
 stages:
-- stage: Build
-  jobs:
-  - template: /eng/common/templates/jobs/jobs.yml
-    parameters:
-      runAsPublic: true
-      enableMicrobuild: false
-      enableTelemetry: false
-      enablePublishBuildAssets: false
-      artifacts:
-        publish:
-          logs: true
-      jobs:
-      - job: ArcadeInfrastructure
-        variables:
-        - name: _BuildConfig
-          value: Release
-        steps:
-        - script: eng\common\build.cmd -restore -build -configuration $(_BuildConfig) -ci
-          displayName: Restore and validate Arcade infrastructure
+- template: /eng/pipelines/dotnet-package-skills/stage.yml
