@@ -103,11 +103,12 @@ When a package leaves the project, `install` keeps its skills and lists them:
 2 installed skills belong to a package that the target no longer references:
   fabrikam.testing-fakes (fabrikam.testing 1.4.0)
   fabrikam.testing-fixtures (fabrikam.testing 1.4.0)
-Run 'dotnet-package-skills uninstall --stale' to remove them.
+Use uninstall with --stale to remove skills that no longer match the project.
 ```
 
-The suggested command repeats the `--target` and `--destination` that you passed, so you can run
-it exactly as printed. Every command that the tool's errors suggest works the same way.
+The tool gives removal-option guidance, not a paste-ready command with repository paths.
+Use the reported Target and Destination context to choose the project and skills folder for
+your uninstall.
 
 A package reference can disappear for a moment, for example halfway through a refactor. Because
 of this, removing skills is always a command that you run on purpose. `uninstall --stale` removes
@@ -172,10 +173,9 @@ cases:
 - The target resolves a package to more than one version, or `--package` names a package more
   than once.
 - With a target, a package that the target resolves is missing from the NuGet cache.
-- With a target, an installed skill is stale. Run `dotnet-package-skills uninstall --stale`
-  first.
-- With `--package`, a named package is installed at a different version. Run
-  `dotnet-package-skills uninstall --package <ID>` first. You can also run
+- With a target, an installed skill is stale. Use uninstall with `--stale` first.
+- With `--package`, a named package is installed at a different version. Use uninstall with
+  `--package` to remove that package's installed skills first. You can also run
   `install --package <ID>@<VERSION>` without `--interactive` to move the package to its new
   version.
 
@@ -403,8 +403,9 @@ One combination stops `install` instead of skipping a file. This happens when th
 moves to a version that no longer ships the skill, while a different package ships a skill with
 that same name. Removing the old copy would hand the name to the other package. Keeping the old
 copy would record it under the new version's number, which would be wrong. For both reasons,
-`install` changes nothing in this case. It suggests `uninstall --package <ID>` for the owner.
-After you run that command, `install` copies both packages' current skills.
+`install` changes nothing in this case. It directs you to uninstall with `--package` for the
+owner. After you remove the owner's installed skills, `install` copies both packages' current
+skills.
 
 V1 does not reconcile two folders that differ only in physical case on a case-sensitive file
 system. Keep an authored skill folder's casing stable across versions. Avoid folders such as
@@ -537,6 +538,11 @@ link, before install or uninstall changes skills. Use a regular manifest file in
 A destination directory reached through a link or junction remains supported. This check
 is limited to the manifest file entry; it does not guarantee safety against a link replaced
 concurrently between checking and writing.
+
+Install and uninstall are not transactional in this prerelease. A failed skill copy or manifest
+write (for example a read-only or locked manifest, or exhausted disk space), or an interruption,
+can leave changed skills and a stale or partial manifest. Detected failures return a nonzero
+exit; changes are not rolled back or recovered automatically.
 
 The tool serializes concurrent operations on the same destination. It rejects an interactive
 choice if ownership changed before the tool could apply that choice.

@@ -92,7 +92,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
 
     /// <summary>
     /// Install never removes a skill because its package left the project, so say which ones
-    /// stayed and which command removes them.
+    /// stayed and which removal option applies.
     /// </summary>
     private void WriteUnreferenced(InstallResult result)
     {
@@ -119,8 +119,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
             output.WriteLine($"  {Describe(entry.Skill, entry.Package, entry.Version)}");
         }
 
-        output.WriteLine(
-            $"Run '{TerminalText.Sanitize(result.StaleCommand)}' to remove {(one ? "it" : "them")}.");
+        output.WriteLine(SkillInstallService.StaleSkillAdvice);
     }
 
     private void WriteSkipped(InstallResult result)
