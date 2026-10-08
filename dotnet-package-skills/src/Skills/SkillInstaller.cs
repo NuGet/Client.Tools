@@ -16,6 +16,9 @@ public sealed record InstallOutcome(
 /// <summary>Copies discovered skills into the destination and keeps the manifest in step.</summary>
 public sealed class SkillInstaller
 {
+    internal const string PackageConflictAdvice =
+        "Use uninstall with --package to remove skills for the conflicting packages, then try again.";
+
     /// <summary>
     /// Copies every skill into <paramref name="destinationRoot"/>, refreshing the ones this tool
     /// already installed.
@@ -29,17 +32,12 @@ public sealed class SkillInstaller
     /// that cleanup belongs to <c>uninstall --stale</c>. Pass an empty map to only add skills.
     /// Null offers the packages of <paramref name="skills"/> at their versions.
     /// </param>
-    /// <param name="uninstallCommand">
-    /// Spells the uninstall command that an error suggests, given its arguments, so it can name
-    /// the destination the caller was given.
-    /// </param>
     public InstallOutcome Install(
         string destinationRoot,
         IReadOnlyList<BundledSkill> skills,
         bool dryRun,
         IReadOnlyDictionary<string, string>? offered = null,
-        IReadOnlyCollection<TrackedSkill>? expectedInstalled = null,
-        Func<string, string>? uninstallCommand = null)
+        IReadOnlyCollection<TrackedSkill>? expectedInstalled = null)
     {
         // Package ids compare without regard to case, whatever comparer the caller's map uses:
         // the manifest spells them in lowercase, and packages keep NuGet's casing.
@@ -90,7 +88,8 @@ public sealed class SkillInstaller
                 skipped.Add(ToSkipped(
                     skill,
                     $"the destination folder is managed for {tracked.Package} {tracked.Version} " +
-                    $"skill '{tracked.Skill}'; uninstall that skill before replacing its owner"));
+                    $"skill '{tracked.Skill}'; use uninstall with --package to remove the current owner's skills " +
+                    "before replacing it"));
                 protectedPaths.Add(tracked.Skill);
                 continue;
             }
@@ -111,11 +110,7 @@ public sealed class SkillInstaller
 
         if (stranded.Count > 0)
         {
-            throw NameWouldChangeOwner(
-                stranded,
-                versions,
-                selected,
-                uninstallCommand ?? (arguments => $"dotnet-package-skills uninstall {arguments}"));
+            throw NameWouldChangeOwner(stranded, versions, selected);
         }
 
         var current = accepted.Select(skill => skill.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -195,8 +190,7 @@ public sealed class SkillInstaller
     private static PackageSkillsException NameWouldChangeOwner(
         IReadOnlyList<TrackedSkill> stranded,
         IReadOnlyDictionary<string, string> versions,
-        IReadOnlyList<BundledSkill> selected,
-        Func<string, string> uninstallCommand)
+        IReadOnlyList<BundledSkill> selected)
     {
         // The offered map keeps NuGet's casing, which reads better than the manifest's.
         string OwnerId(TrackedSkill entry) =>
@@ -210,15 +204,10 @@ public sealed class SkillInstaller
                    $"and {(other is null ? "another package" : $"{other.PackageId} {other.PackageVersion}")} " +
                    "ships a skill with that name";
         });
-        var owners = stranded.Select(OwnerId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var command = owners.Count == 1
-            ? $"'{uninstallCommand($"--package {owners[0]}")}'"
-            : $"'{uninstallCommand("--package <ID>")}' for each of {string.Join(", ", owners)}";
-
         return new PackageSkillsException(
             $"Cannot install skills because {string.Join("; ", reasons)}. The tool doesn't hand an installed " +
             "skill to another package, and the manifest records one version per package, so it can't keep the " +
-            $"older copy either. Run {command} first, and then try again. No skills were changed.");
+            "older copy either. " + PackageConflictAdvice + " No skills were changed.");
     }
 
     /// <summary>

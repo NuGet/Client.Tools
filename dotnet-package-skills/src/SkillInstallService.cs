@@ -46,15 +46,9 @@ public sealed record InstallResult
 
     /// <summary>
     /// Installed skills whose package the target no longer references. Install keeps them, and
-    /// the report points at <c>uninstall --stale</c>, the one command that removes them.
+    /// the report points at uninstall's <c>--stale</c> option for removing them.
     /// </summary>
     public IReadOnlyList<TrackedSkill> Unreferenced { get; init; } = [];
-
-    /// <summary>
-    /// The command the report suggests for removing <see cref="Unreferenced"/> skills, spelled
-    /// with the target and destination this run used.
-    /// </summary>
-    public string StaleCommand { get; init; } = "dotnet-package-skills uninstall --stale";
 
     /// <summary>
     /// Set when an interactive install found skills but every one is installed already or
@@ -75,6 +69,9 @@ public sealed record SkillChoice(IReadOnlyList<BundledSkill> Selected)
 /// <summary>Ties package listing, skill discovery, and installation together.</summary>
 public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller installer)
 {
+    internal const string StaleSkillAdvice =
+        "Use uninstall with --stale to remove skills that no longer match the project.";
+
     public SkillInstallService(IProcessRunner runner) : this(new DotnetCli(runner), new SkillInstaller())
     {
     }
@@ -222,8 +219,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             choice?.Selected ?? discovered.AllCandidates ?? discovered.Skills,
             request.DryRun,
             offered,
-            choice?.ExpectedInstalled,
-            arguments => UninstallCommand(request, arguments));
+            choice?.ExpectedInstalled);
 
         return discovered with
         {
@@ -236,7 +232,6 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             // A target lists every package it references, so anything it did not offer has left
             // the project. Named packages say nothing about the rest, so they report nothing.
             Unreferenced = request.Packages.Count == 0 && choice is null ? outcome.Untouched : [],
-            StaleCommand = UninstallCommand(request, "--stale", withTarget: true),
             AllCandidates = null,
         };
     }
@@ -326,11 +321,11 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         if (request.Packages.Count == 0)
         {
             RequireEveryPackageInCache(discovered);
-            RequireNoStaleSkills(request, discovered, installed);
+            RequireNoStaleSkills(discovered, installed);
         }
         else
         {
-            RequireNoOtherInstalledVersion(request, discovered, installed);
+            RequireNoOtherInstalledVersion(discovered, installed);
         }
 
         var preview = Install(
@@ -347,7 +342,6 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     }
 
     private static void RequireNoStaleSkills(
-        InstallRequest request,
         InstallResult discovered,
         IReadOnlyCollection<TrackedSkill> installed)
     {
@@ -365,12 +359,11 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             $"Cannot choose skills interactively because {stale.Count} installed " +
             $"{(stale.Count == 1 ? "skill doesn't" : "skills don't")} match the target: " +
             $"{string.Join(", ", stale.Select(entry => $"{entry.Skill} ({entry.Package} {entry.Version})"))}. " +
-            $"Run '{UninstallCommand(request, "--stale", withTarget: true)}' first, and then try again. " +
+            StaleSkillAdvice + " Then try again. " +
             "No skills were changed.");
     }
 
     private static void RequireNoOtherInstalledVersion(
-        InstallRequest request,
         InstallResult discovered,
         IReadOnlyCollection<TrackedSkill> installed)
     {
@@ -388,13 +381,10 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             return;
         }
 
-        var command = conflicts.Count == 1
-            ? $"'{UninstallCommand(request, $"--package {conflicts[0].Id}")}'"
-            : $"'{UninstallCommand(request, "--package <ID>")}' for each of them";
         throw new PackageSkillsException(
             $"{string.Join(" and ", conflicts.Select(conflict => $"{conflict.Id} {conflict.Installed!.Version}"))} " +
             $"{(conflicts.Count == 1 ? "is" : "are")} already installed, and an interactive install only adds " +
-            $"skills, so it can't change a package's version. Run {command} first, and then try again. " +
+            "skills, so it can't change a package's version. " + SkillInstaller.PackageConflictAdvice + " " +
             "No skills were changed.");
     }
 
@@ -461,44 +451,6 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             skill.PackageVersion,
             skill.SkillName,
             reason);
-
-    /// <summary>
-    /// Spells an uninstall command that a report or an error suggests, with the target and the
-    /// destination this run used.
-    /// </summary>
-    /// <param name="withTarget">Repeat <c>--target</c>, which only <c>uninstall --stale</c> accepts.</param>
-    internal static string UninstallCommand(InstallRequest request, string arguments, bool withTarget = false)
-    {
-        // A suggestion is only useful if running it as printed acts on the same skills folder,
-        // compared against the same project.
-        var command = $"dotnet-package-skills uninstall {arguments}";
-
-        if (withTarget && request.Target is not null)
-        {
-            command += $" --target {CommandArgument(request.Target)}";
-        }
-
-        if (!IsDefaultDestination(request))
-        {
-            command += $" --destination {CommandArgument(request.Destination)}";
-        }
-
-        return command;
-    }
-
-    private static bool IsDefaultDestination(InstallRequest request) =>
-        Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.Destination, request.WorkingDirectory)).Equals(
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(InstallRequest.DefaultDestination, request.WorkingDirectory)),
-            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-
-    /// <summary>
-    /// Quotes a value that a shell would otherwise split or reinterpret. Backslashes count:
-    /// bash treats them as escapes outside quotes, and every shell reads them literally inside.
-    /// </summary>
-    private static string CommandArgument(string value) =>
-        value.Length > 0 && value.All(character => char.IsAsciiLetterOrDigit(character) || "._-/:+@".Contains(character))
-            ? value
-            : $"\"{value}\"";
 }
 
 /// <summary>A solution or project and the package versions it references directly.</summary>

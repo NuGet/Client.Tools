@@ -362,6 +362,8 @@ public class SkillInstallerTests
         Assert.Empty(outcome.Installed);
         Assert.Empty(outcome.Removed);
         Assert.Contains("managed for contoso.widgets", Assert.Single(outcome.Skipped).Reason);
+        Assert.Contains("use uninstall with --package", Assert.Single(outcome.Skipped).Reason);
+        Assert.DoesNotContain("--stale", Assert.Single(outcome.Skipped).Reason);
         Assert.Equal("contoso.widgets", Assert.Single(InstallManifest.Load(destination).Packages).Key);
         Assert.Equal(contents, File.ReadAllBytes(Path.Combine(destination, "shared-skill", "SKILL.md")));
         Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
@@ -393,8 +395,35 @@ public class SkillInstallerTests
         Assert.Contains(
             "Alpha 2.0.0 no longer ships the installed skill 'shared', and Beta 2.0.0 ships a skill with that name",
             error.Message);
-        Assert.Contains("'dotnet-package-skills uninstall --package Alpha' first", error.Message);
+        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
+        Assert.DoesNotContain("--stale", error.Message);
         Assert.Contains("No skills were changed", error.Message);
+        Assert.Equal(before, Snapshot(destination));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Multiple_owner_conflicts_require_package_option_guidance_without_generated_commands(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.Combine("dest");
+        _installer.Install(destination,
+            [Skill(temp, "Alpha", "1.0.0", "alpha-shared"), Skill(temp, "Gamma", "1.0.0", "gamma-shared")],
+            dryRun: false);
+        var before = Snapshot(destination);
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+            _installer.Install(destination,
+                [Skill(temp, "Beta", "2.0.0", "alpha-shared"), Skill(temp, "Beta", "2.0.0", "gamma-shared")],
+                dryRun, offered: Offer(("Alpha", "2.0.0"), ("Gamma", "2.0.0"), ("Beta", "2.0.0"))));
+
+        Assert.Contains("Alpha", error.Message);
+        Assert.Contains("Gamma", error.Message);
+        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
+        Assert.DoesNotContain("--stale", error.Message);
         Assert.Equal(before, Snapshot(destination));
     }
 

@@ -1,3 +1,4 @@
+using DotnetPackageSkills.Cli;
 using DotnetPackageSkills.Infrastructure;
 using DotnetPackageSkills.NuGet;
 using DotnetPackageSkills.Skills;
@@ -291,7 +292,7 @@ public class SkillInstallServiceTests
                 ? "1 installed skill doesn't match the target: mockly (mockly 1.10.0)"
                 : "1 installed skill doesn't match the target: widget-usage (contoso.widgets 2.3.0)",
             error.Message);
-        Assert.Contains("uninstall --stale", error.Message);
+        Assert.Contains("Use uninstall with --stale", error.Message);
         Assert.Contains("No skills were changed", error.Message);
         Assert.Equal(before, Snapshot(destination));
     }
@@ -349,45 +350,54 @@ public class SkillInstallServiceTests
             request, service.Discover(request), SkillInstallService.InstalledSkills(destination, temp.Path)));
 
         Assert.Contains("Mockly 1.10.0 is already installed", error.Message);
-        Assert.Contains("'dotnet-package-skills uninstall --package Mockly'", error.Message);
+        Assert.Contains("Use uninstall with --package", error.Message);
+        Assert.DoesNotContain("--stale", error.Message);
         Assert.Equal(before, Snapshot(destination));
     }
 
     [Theory]
-    [InlineData(".agents/skills", null, "--stale", true, "dotnet-package-skills uninstall --stale")]
-    [InlineData(".agents/skills/", null, "--stale", true, "dotnet-package-skills uninstall --stale")]
-    [InlineData(".claude/skills", null, "--stale", true, "dotnet-package-skills uninstall --stale --destination .claude/skills")]
-    [InlineData(
-        "my skills", "src/My App.slnx", "--stale", true,
-        "dotnet-package-skills uninstall --stale --target \"src/My App.slnx\" --destination \"my skills\"")]
-    [InlineData(
-        ".claude/skills", "src/App.slnx", "--package Mockly", false,
-        "dotnet-package-skills uninstall --package Mockly --destination .claude/skills")]
-    [InlineData(
-        @"C:\src\skills", null, "--stale", true,
-        "dotnet-package-skills uninstall --stale --destination \"C:\\src\\skills\"")]
-    public void Suggested_commands_repeat_the_target_and_destination_that_were_used(
-        string destination, string? target, string arguments, bool withTarget, string expected)
+    [InlineData("my skills")]
+    [InlineData("src/$(command).sln")]
+    [InlineData("$(Write-Host injected)")]
+    [InlineData("my`skills")]
+    [InlineData("my\"skills")]
+    [InlineData("path;command")]
+    [InlineData("path\ncommand")]
+    [InlineData("path\tcommand")]
+    [InlineData("my\u001b[2Jskills")]
+    public void Interactive_option_guidance_does_not_interpolate_arbitrary_request_paths(string path)
     {
-        // A suggestion is only useful if running it as printed acts on the same skills folder,
-        // compared against the same project.
         using var temp = new TempDirectory();
-        var request = Request(temp) with { Destination = destination, Target = target };
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
+        var packages = new[] { PackageCoordinate.Parse("Mockly@1.10.0") };
+        var discovered = service.Discover(Request(temp) with { Packages = packages });
+        TrackedSkill[] installed = [new("mockly", "1.9.0", "mockly")];
 
-        Assert.Equal(expected, SkillInstallService.UninstallCommand(request, arguments, withTarget));
+        foreach (var packageFilter in new[] { false, true })
+        {
+            var request = Request(temp) with
+            {
+                Destination = path,
+                Target = path,
+                Packages = packageFilter ? packages : [],
+            };
+            var error = Assert.Throws<PackageSkillsException>(() =>
+                service.PrepareInteractiveInstall(request, discovered, installed));
+
+            Assert.Contains(packageFilter
+                ? "Use uninstall with --package to remove skills for the conflicting packages, then try again."
+                : "Use uninstall with --stale to remove skills that no longer match the project.", error.Message);
+            Assert.DoesNotContain(packageFilter ? "--stale" : "--package", error.Message);
+            Assert.DoesNotContain(path, error.Message);
+            Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
+            Assert.DoesNotContain("--target", error.Message);
+            Assert.DoesNotContain("--destination", error.Message);
+        }
     }
 
     [Fact]
-    public void A_suggested_command_leaves_out_a_destination_that_is_the_default_spelled_in_full()
-    {
-        using var temp = new TempDirectory();
-        var request = Request(temp) with { Destination = temp.Combine(".agents", "skills") };
-
-        Assert.Equal("dotnet-package-skills uninstall --stale", SkillInstallService.UninstallCommand(request, "--stale"));
-    }
-
-    [Fact]
-    public void The_stale_hint_and_the_stale_stop_name_the_destination_that_was_used()
+    public void Stale_guidance_is_separate_from_nondefault_destination_context()
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -402,13 +412,18 @@ public class SkillInstallServiceTests
         var error = Assert.Throws<PackageSkillsException>(() => service.PrepareInteractiveInstall(
             request, service.Discover(request), SkillInstallService.InstalledSkills(".claude/skills", temp.Path)));
 
-        const string Command = "dotnet-package-skills uninstall --stale --destination .claude/skills";
-        Assert.Equal(Command, result.StaleCommand);
-        Assert.Contains($"Run '{Command}' first", error.Message);
+        using var output = new StringWriter();
+        new OutputWriter(output).WriteInstallReport(result, copied: true);
+
+        Assert.Contains($"Destination: {result.Destination}", output.ToString());
+        Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", output.ToString());
+        Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", error.Message);
+        Assert.DoesNotContain("--destination", output.ToString());
+        Assert.DoesNotContain("--destination", error.Message);
     }
 
     [Fact]
-    public void The_other_version_stop_names_the_destination_that_was_used()
+    public void An_installed_other_version_requires_package_option_guidance_not_stale_removal()
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
@@ -421,11 +436,21 @@ public class SkillInstallServiceTests
         var error = Assert.Throws<PackageSkillsException>(() => service.PrepareInteractiveInstall(
             upgrade, service.Discover(upgrade), SkillInstallService.InstalledSkills(".claude/skills", temp.Path)));
 
-        Assert.Contains("'dotnet-package-skills uninstall --package Mockly --destination .claude/skills' first", error.Message);
+        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
+        Assert.DoesNotContain("--stale", error.Message);
+        Assert.DoesNotContain("--destination", error.Message);
     }
 
-    [Fact]
-    public void A_version_change_that_would_hand_a_skill_to_another_package_stops_with_a_command_for_this_destination()
+    [Theory]
+    [InlineData("my skills")]
+    [InlineData("src/$(command).sln")]
+    [InlineData("$(Write-Host injected)")]
+    [InlineData("my`skills")]
+    [InlineData("my\"skills")]
+    [InlineData("path;command")]
+    [InlineData("path\ncommand")]
+    [InlineData("my\u001b[2Jskills")]
+    public void Name_owner_conflicts_use_package_option_prose_without_request_path_commands(string path)
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -439,10 +464,17 @@ public class SkillInstallServiceTests
         var service = new SkillInstallService(new FakeDotnet(
             temp.Combine("packages"), Json(("Alpha", "2.0.0"), ("Beta", "1.0.0"))));
 
-        var error = Assert.Throws<PackageSkillsException>(() => service.Install(request));
+        var discovered = service.Discover(request);
+        var error = Assert.Throws<PackageSkillsException>(() =>
+            service.Install(request with { Target = path, Destination = path }, discovered, choice: null));
 
         Assert.Contains("Alpha 2.0.0 no longer ships the installed skill 'shared'", error.Message);
-        Assert.Contains("'dotnet-package-skills uninstall --package Alpha --destination .claude/skills' first", error.Message);
+        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
+        Assert.DoesNotContain("--stale", error.Message);
+        Assert.DoesNotContain(path, error.Message);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
+        Assert.DoesNotContain("--target", error.Message);
+        Assert.DoesNotContain("--destination", error.Message);
         Assert.Equal(before, Snapshot(destination));
     }
 

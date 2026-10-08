@@ -64,7 +64,7 @@ public class OutputWriterTests
     }
 
     [Fact]
-    public void Skills_whose_package_left_the_target_are_listed_with_the_command_that_removes_them()
+    public void Skills_whose_package_left_the_target_are_listed_with_stale_option_guidance()
     {
         using var output = new StringWriter();
         var result = ResultWithCollision() with
@@ -77,7 +77,7 @@ public class OutputWriterTests
         Assert.Contains(
             "1 installed skill belongs to a package that the target no longer references:" + Environment.NewLine +
             "  contoso.widgets-usage (contoso.widgets 2.3.0)" + Environment.NewLine +
-            "Run 'dotnet-package-skills uninstall --stale' to remove it.",
+            "Use uninstall with --stale to remove skills that no longer match the project.",
             output.ToString());
     }
 
@@ -99,25 +99,39 @@ public class OutputWriterTests
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
         Assert.Contains($"2 installed skills belong to {packages} that the target no longer references:", output.ToString());
-        Assert.Contains("Run 'dotnet-package-skills uninstall --stale' to remove them.", output.ToString());
+        Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", output.ToString());
     }
 
-    [Fact]
-    public void The_stale_hint_prints_the_command_for_the_destination_and_target_that_were_used()
+    [Theory]
+    [InlineData("my skills")]
+    [InlineData("src/$(command).sln")]
+    [InlineData("$(Write-Host injected)")]
+    [InlineData("my`skills")]
+    [InlineData("my\"skills")]
+    [InlineData("path;command")]
+    [InlineData("path\ncommand")]
+    [InlineData("path\tcommand")]
+    [InlineData("my\u001b[2Jskills")]
+    public void Stale_advice_never_formats_report_paths_as_an_executable_command(string path)
     {
         using var output = new StringWriter();
         var result = ResultWithCollision() with
         {
             Unreferenced = [new TrackedSkill("contoso.widgets", "2.3.0", "contoso.widgets-usage")],
-            StaleCommand = "dotnet-package-skills uninstall --stale --destination \"my\u001b[2Jskills\"",
+            Target = path,
+            Destination = path,
         };
 
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
-        Assert.Contains(
-            "Run 'dotnet-package-skills uninstall --stale --destination \"myskills\"' to remove it.",
-            output.ToString());
-        Assert.DoesNotContain('\u001b', output.ToString());
+        var report = output.ToString();
+        Assert.Contains($"Target:      {TerminalText.Sanitize(path)}", report);
+        Assert.Contains($"Destination: {TerminalText.Sanitize(path)}", report);
+        Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", report);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", report);
+        Assert.DoesNotContain("--target", report);
+        Assert.DoesNotContain("--destination", report);
+        AssertPlainText(report);
     }
 
     [Fact]
