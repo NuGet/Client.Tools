@@ -66,9 +66,9 @@ This article uses these terms:
 `dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
 
 ```output
-Target:                          C:\src\MyApp\MyApp.slnx
+Target:      C:\src\MyApp\MyApp.slnx
 NuGet global-packages directory: C:\packages
-Destination:                     C:\src\MyApp\.agents\skills
+Destination: C:\src\MyApp\.agents\skills
 Scanned 2 packages (direct).
 
 Found 4 skills:
