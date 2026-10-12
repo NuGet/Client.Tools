@@ -10,7 +10,7 @@ inside the package. A skill is a set of instructions that covers the conventions
 and the correct usage patterns for that library. The package stores each skill at
 `skills/<package-id>-<skill-name>/SKILL.md`.
 
-Restore extracts the package into the **NuGet global packages folder**. This folder is
+Restore extracts the package into the **NuGet global-packages directory**. This directory is
 `~/.nuget/packages` by default. It sits outside your repository, and every project on the
 machine shares it. A coding agent scans a skills folder only *inside* the working repository.
 Because of this, the skill sits correctly on disk, but the agent cannot see it.
@@ -38,8 +38,8 @@ dotnet-package-skills install
 ```
 
 This single command does the whole job. It finds your solution or project. It lists that
-project's packages. It locates each direct dependency in the NuGet cache. It copies any bundled
-skills into `.agents/skills/`.
+project's packages. It locates each direct dependency in the NuGet global-packages directory.
+It copies any bundled skills into `.agents/skills/`.
 
 Run the command again after you add or upgrade a package. The command refreshes the skills of
 the packages it finds. When a package moves to a new version, the command removes the skills
@@ -63,10 +63,18 @@ There are three ways to tell the tool which packages to read skills from.
 dotnet-package-skills install                              # auto-detect solution or project
 dotnet-package-skills install --target src/MyApp.slnx      # a specific solution or project
 dotnet-package-skills install --package Mockly@1.10.0      # exact packages, no project needed
+dotnet-package-skills list --package Mockly                # version tracked in the destination manifest
 ```
 
-`--package` is repeatable. It needs an **exact version**. The tool refuses `Mockly@1.*` and
-`Mockly@[1.0,2.0)`. Resolving a range means picking one version from it, and the only correct
+`-p` and `--package` accept `ID` or `ID@VERSION` for install and list. A bare ID uses the exact
+version recorded for that package in the selected destination's `.dotnet-package-skills.json`.
+Package IDs are matched without regard to case. Use `--destination` to select a different
+manifest. If the package is not tracked there, specify `ID@VERSION`; the tool never chooses a
+version by scanning the NuGet global-packages directory. An explicit version does not depend
+on the tracked version.
+
+`--package` is repeatable. A supplied version must be **exact**. The tool refuses `Mockly@1.*`
+and `Mockly@[1.0,2.0)`. Resolving a range means picking one version from it, and the only correct
 answer to "which version" comes from a project's own restore step. `--target` gives you that
 answer. If the tool guessed a version instead, it could copy skills that describe a release you
 do not actually reference.
@@ -76,13 +84,15 @@ do not actually reference.
 NuGet's version parser checks exact versions, including the older one-, two-, and four-part
 forms. Invalid prerelease or metadata labels are rejected. Package comparisons normalize
 padding and letter case and ignore build metadata, so `1.10` and `1.10.0+build.1` identify the
-same release. Reports retain the version text that you supplied.
+same release. Reports retain an explicit version's original text, or show the tracked version
+when you supply a bare ID. Equivalent bare and explicit selections are inspected only once.
 
 When you name packages explicitly, the tool touches only the packages you name. It leaves every
 other installed skill alone. A target describes the project's complete set of packages. Because
 of this, a target install can also tell you which installed skills belong to a package that the
-project no longer references. When a package that the target resolves is missing from the NuGet
-cache, `install` stops before it changes anything. Restore the project first, and then try again.
+project no longer references. When a package that the target resolves is missing from the
+NuGet global-packages directory, `install` stops before it changes anything. Restore the project
+first, and then try again.
 
 The tool expects one version of each package.
 [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management)
@@ -170,9 +180,9 @@ Adding a skill makes sense only when the installed skills already match the pack
 this, an interactive install stops before the checklist opens, and changes nothing, in these
 cases:
 
-- The target resolves a package to more than one version, or `--package` names a package more
-  than once.
-- With a target, a package that the target resolves is missing from the NuGet cache.
+- The target resolves a package to more than one version, or `--package` selects more than one
+  version of a package.
+- With a target, a package that the target resolves is missing from the NuGet global-packages directory.
 - With a target, an installed skill is stale. Use uninstall with `--stale` first.
 - With `--package`, a named package is installed at a different version. Use uninstall with
   `--package` to remove that package's installed skills first. You can also run
@@ -274,8 +284,8 @@ Only skills that don't match the target are listed.
 ```
 
 Add `--dry-run` to see the outcome without it happening. Descriptions come from the installed
-copies, not from the NuGet cache. A missing or damaged `SKILL.md` does not block removal of a
-manifest-owned skill. Package matching ignores letter case. Both modes normalize version filters,
+copies, not from the NuGet global-packages directory. A missing or damaged `SKILL.md` does not
+block removal of a manifest-owned skill. Package matching ignores letter case. Both modes normalize version filters,
 so `1.10` matches `1.10.0`. A blank, missing, or repeated `--package` value on `uninstall` is an
 error. It never broadens the command to an unfiltered uninstall. `--stale` and `--package` cannot
 combine.
@@ -285,10 +295,10 @@ combine.
 | Option | Applies to | Description |
 | --- | --- | --- |
 | `-t, --target <PATH>` | install, list | Solution or project to inspect. Defaults to searching the current directory. |
-| `-p, --package <ID@VERSION>` | install, list | Take skills from an exact package instead of a project. Repeatable. Refuses a floating version. |
-| `-d, --destination <PATH>` | install, list | Where the tool copies skills to. Default `.agents/skills`. |
+| `-p, --package <ID[@VERSION]>` | install, list | Select a package instead of a project. A bare ID uses the destination manifest's tracked version; otherwise specify an exact version. Repeatable. Refuses a floating version. |
+| `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
 | `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
-| `--global-packages <PATH>` | install, list | Overrides the NuGet global packages folder. |
+| `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. |
 | `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--target` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
 | `-p, --package <ID[@VERSION]>` | uninstall | Removes only this package's skills. Removes whichever version is installed, or only the version you name. |
@@ -486,7 +496,7 @@ directory can still be a link, but an unreadable requested directory produces an
 2. `dotnet nuget locals global-packages --list` finds where restore extracted those packages.
    `NUGET_PACKAGES` and `--global-packages` both take precedence over this step, in that order.
 3. `install` stops without changing anything when a package resolves to more than one version, or
-   when a package that the target resolves is missing from the cache.
+   when a package that the target resolves is missing from the NuGet global-packages directory.
 4. For each package, the tool looks in `<global-packages>/<id>/<version>/skills/`.
 5. The tool copies each `skills/<name>/` folder to `<destination>/<name>/`. It skips a collision
    and shows a warning instead. For a package that moved to a new version, the tool removes the
@@ -494,17 +504,17 @@ directory can still be a link, but an unreadable requested directory produces an
 6. The tool records what it copied in `<destination>/.dotnet-package-skills.json`.
 
 `uninstall --stale` needs only step 1. It compares the manifest with the target's package
-references, and it never looks in the NuGet cache for skills.
+references, and it never looks in the NuGet global-packages directory for skills.
 
 The tool never reads or interprets anything inside a skill. The package author decides what a
 skill contains. This tool only places that content where an agent will look for it.
 
 ### The tool only copies skills
 
-The global packages folder is NuGet's content-addressable cache. NuGet validates this folder
-during restore, and every project on the machine shares it. If you move a file out of this
-folder, restore may treat the cached package as damaged. Moving a file would also remove the
-skill from every other repository that uses that package.
+The NuGet global-packages directory contains the packages that restore extracted. NuGet
+validates this directory during restore, and every project on the machine shares it. If you
+move a file out of this directory, restore may treat the package as damaged. Moving a file would
+also remove the skill from every other repository that uses that package.
 
 ### Removal is manifest-driven
 
@@ -565,10 +575,14 @@ earlier SDK may say that the target needs restoring. The tool never restores a p
 own. Resolve what the tool reports, for example by running `dotnet restore`, and run the tool
 again.
 
-**"resolved packages are missing from"** the NuGet cache. Run `dotnet restore` for the target and
-try again. This message also appears when your packages come from a NuGet *fallback folder*,
+**"resolved packages are missing from"** the NuGet global-packages directory. Run `dotnet restore`
+for the target and try again. This message also appears when your packages come from a NuGet *fallback folder*,
 which is common in a container or on a hosted build agent. Point `--global-packages` at that
 folder.
+
+**"is not tracked in the destination manifest"** A bare package ID needs a tracked version.
+Select the destination that contains the package's manifest entry, or specify `ID@VERSION`.
+An untracked package is not resolved from the NuGet global-packages directory.
 
 **"resolve to more than one version"** Projects in the target reference different versions of
 one package. Align those versions, for example with Central Package Management, and try again.
@@ -579,9 +593,9 @@ Some installed skills are stale. Preview them with
 try again.
 
 **"is already installed, and an interactive install only adds skills"** `install --interactive
---package` named a package that is installed at a different version. Run `install --package`
-without `--interactive` to move the package to the new version, or run `uninstall --package <ID>`
-first.
+--package` named a package that is installed at a different version. Use `ID@VERSION` with
+install without `--interactive` to move the package to the new version, or use uninstall with
+`--package` first. A bare ID retains the destination manifest's tracked version.
 
 **"Could not read the install manifest"** The manifest has a merge conflict, or someone edited it
 into a shape that the tool cannot trust. See
@@ -589,9 +603,9 @@ into a shape that the tool cannot trust. See
 
 **"Unrecognized option '--format'"** Your SDK is older than 7.0.200. Upgrade it.
 
-**The tool reads the wrong global packages folder.** `nuget.config` discovery walks up from the
-current directory. Run the tool from your repository root instead, or pass `--global-packages`
-explicitly.
+**The tool reads the wrong NuGet global-packages directory.** `nuget.config` discovery walks up
+from the current directory. Run the tool from your repository root instead, or pass
+`--global-packages` explicitly.
 
 **A solution filter (`.slnf`) is rejected.** Not every SDK accepts a solution filter with
 `dotnet list package`. Pass the underlying `.sln` file instead, or run the tool once for each

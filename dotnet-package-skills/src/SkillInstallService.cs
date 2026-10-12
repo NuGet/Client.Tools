@@ -13,7 +13,7 @@ public sealed record InstallRequest
     /// <summary>Solution or project to inspect. Ignored when <see cref="Packages"/> is set.</summary>
     public string? Target { get; init; }
 
-    /// <summary>Exact packages to take skills from, instead of inspecting a project.</summary>
+    /// <summary>Packages to inspect, with exact versions or versions taken from the destination manifest.</summary>
     public IReadOnlyList<PackageCoordinate> Packages { get; init; } = [];
 
     public required string Destination { get; init; }
@@ -88,7 +88,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     {
         var target = TargetLocator.Resolve(request.Target, request.WorkingDirectory);
 
-        // Ask for the global packages folder from the repository, not from wherever the user
+        // Ask for the NuGet global-packages directory from the repository, not from wherever the user
         // happened to invoke the tool: nuget.config discovery walks up from the current
         // directory, and a repo-level config is exactly the case worth honouring.
         var globalPackages = LocateGlobalPackages(request, Path.GetDirectoryName(target));
@@ -105,10 +105,10 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
     private InstallResult DiscoverFromCoordinates(InstallRequest request)
     {
+        var packages = ResolveCoordinates(request).DistinctBy(package =>
+            (package.Id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(package.Version))).ToArray();
         var globalPackages = LocateGlobalPackages(request, request.WorkingDirectory);
 
-        var packages = request.Packages.DistinctBy(package =>
-            (package.Id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(package.Version))).ToArray();
         var (skills, skipped, candidates) = Collect(
             globalPackages,
             packages.Select(coordinate => (coordinate.Id, coordinate.Version)));
@@ -116,9 +116,44 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         return Build(request, target: null, globalPackages, packages.Length, skills, skipped)
             with
             {
-                ResolvedPackages = [.. packages.Select(coordinate => new PackageReferenceInfo(coordinate.Id, coordinate.Version))],
+                ResolvedPackages = packages,
                 AllCandidates = candidates,
             };
+    }
+
+    private static IReadOnlyList<PackageReferenceInfo> ResolveCoordinates(InstallRequest request)
+    {
+        InstallManifest? manifest = null;
+        var destination = Path.GetFullPath(request.Destination, request.WorkingDirectory);
+        if (request.Packages.Any(package => package.Version is null))
+        {
+            using var destinationLock = DestinationLock.Acquire(destination);
+            manifest = InstallManifest.Load(destination);
+        }
+
+        var packages = new List<PackageReferenceInfo>(request.Packages.Count);
+        foreach (var package in request.Packages)
+        {
+            PackageCoordinate.ValidateId(package.Id);
+            var version = package.Version;
+            if (version is null)
+            {
+                if (manifest is null || !manifest.Packages.TryGetValue(package.Id.ToLowerInvariant(), out var tracked))
+                {
+                    throw new PackageSkillsException(
+                        $"Package '{package.Id}' is not tracked in the destination manifest " +
+                        $"'{Path.Combine(destination, InstallManifest.FileName)}'. " +
+                        "Specify ID@VERSION to choose an exact version. " +
+                        "The tool does not guess a version from the NuGet global-packages directory.");
+                }
+
+                version = tracked.Version;
+            }
+
+            packages.Add(new PackageReferenceInfo(package.Id, version));
+        }
+
+        return packages;
     }
 
     private string LocateGlobalPackages(InstallRequest request, string? preferredDirectory) =>
@@ -127,9 +162,9 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             preferredDirectory ?? request.WorkingDirectory);
 
     /// <remarks>
-    /// A package that is not in the cache contributes nothing, exactly like one that ships no
-    /// skills: getting packages into the cache is restore's job, not this tool's. Only a target
-    /// install checks for them, because it would otherwise report their skills as stale.
+    /// A package missing from the NuGet global-packages directory contributes nothing, like one
+    /// that ships no skills. Extracting packages is restore's job, not this tool's. Only a target
+    /// install checks for missing packages, because it would otherwise report their skills as stale.
     /// </remarks>
     private static (List<BundledSkill> Skills, List<SkippedSkill> Skipped, List<BundledSkill> Candidates) Collect(
         string globalPackages,
@@ -201,12 +236,12 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
         if (request.Packages.Count == 0)
         {
-            RequireEveryPackageInCache(discovered);
+            RequireEveryPackageInDirectory(discovered);
         }
 
         // A choice only adds: it never refreshes or removes what it was not asked about. Without
-        // one, the run covers the packages it found in the cache, so a version that is not there
-        // never causes a removal.
+        // one, the run covers packages found in the NuGet global-packages directory, so a version
+        // that is not there never causes a removal.
         var offered = choice is null
             ? discovered.ResolvedPackages
                 .Where(package => PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, package.Id, package.Version) is not null)
@@ -275,15 +310,15 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     }
 
     /// <summary>
-    /// Stops a target install when a package the target references is not in the cache.
+    /// Stops a target install when a referenced package is missing from the NuGet global-packages directory.
     /// </summary>
     /// <remarks>
     /// Restoring is not this tool's job, but carrying on would read an unextracted package as
     /// one that ships nothing and report its installed skills as no longer referenced. Asking
     /// for a restore is the honest answer. Named packages never reach this check: naming one
-    /// that is not in the cache simply finds no skills.
+    /// missing from the NuGet global-packages directory simply finds no skills.
     /// </remarks>
-    private static void RequireEveryPackageInCache(InstallResult discovered)
+    private static void RequireEveryPackageInDirectory(InstallResult discovered)
     {
         var missing = discovered.ResolvedPackages
             .Where(package => PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, package.Id, package.Version) is null)
@@ -294,9 +329,11 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         if (missing.Length > 0)
         {
             throw new PackageSkillsException(
-                $"Cannot install skills because resolved packages are missing from '{discovered.GlobalPackagesFolder}': " +
+                "Cannot install skills because resolved packages are missing from the NuGet global-packages directory " +
+                $"'{discovered.GlobalPackagesFolder}': " +
                 $"{string.Join(", ", missing)}. " +
-                "Run dotnet restore for the target using this cache, then try again. No skills were changed.");
+                "Run dotnet restore for the target using this NuGet global-packages directory, then try again. " +
+                "No skills were changed.");
         }
     }
 
@@ -320,7 +357,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
         if (request.Packages.Count == 0)
         {
-            RequireEveryPackageInCache(discovered);
+            RequireEveryPackageInDirectory(discovered);
             RequireNoStaleSkills(discovered, installed);
         }
         else
@@ -436,7 +473,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     /// <summary>
     /// Finds the target and lists its direct package references with <c>dotnet list package</c>.
     /// This is all <c>uninstall --stale</c> reads: deciding which skills are stale needs the
-    /// references, not the packages, so the tool never looks in the NuGet cache for them.
+    /// references, not the packages, so the tool never searches the NuGet global-packages directory.
     /// </summary>
     public TargetReferences ReadReferences(string? target, string workingDirectory)
     {

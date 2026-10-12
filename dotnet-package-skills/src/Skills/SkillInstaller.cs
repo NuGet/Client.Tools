@@ -364,9 +364,8 @@ public sealed class SkillInstaller
     /// Replaces the destination with a fresh copy of the source.
     /// </summary>
     /// <remarks>
-    /// This copies rather than moves, and that is deliberate: the global packages folder is
-    /// NuGet's content-addressable cache. It is validated during restore and shared by every
-    /// project on the machine, so moving files out of it can make restore treat the cached
+    /// This copies rather than moves: the NuGet global-packages directory is validated during
+    /// restore and shared by every project on the machine. Moving files out can make restore treat a
     /// package as corrupt and strips the skill from every other repository using it.
     /// </remarks>
     private static void CopyDirectory(string source, string destination)
@@ -390,7 +389,7 @@ public sealed class SkillInstaller
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(file, target, overwrite: true);
 
-            // Files in the global packages folder are marked read-only by restore. Copying
+            // Files in the NuGet global-packages directory are marked read-only by restore. Copying
             // carries that attribute over, which would make the next install fail to overwrite.
             ClearReadOnly(target);
         }

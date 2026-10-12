@@ -37,7 +37,7 @@ src/
 ├── Cli/ITerminal.cs        An interface for console access, so tests can replace the console
 ├── Cli/InteractiveSkills.cs  Picker-only metadata and selection mapping
 ├── Infrastructure/         Process execution and the dotnet CLI wrapper
-├── NuGet/                  Target detection, package listing, cache path resolution
+├── NuGet/                  Target detection, package listing, NuGet global-packages directory resolution
 └── Skills/                 Discovery, copying, version-change removal, the install manifest
 
 tests/                              xunit tests. Application tests use in-process fakes.

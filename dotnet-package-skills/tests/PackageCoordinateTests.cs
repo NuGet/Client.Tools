@@ -42,12 +42,18 @@ public class PackageCoordinateTests
         Assert.Contains("--target", exception.Message);
     }
 
-    [Fact]
-    public void Parse_tells_the_user_how_to_add_a_missing_version()
+    [Theory]
+    [InlineData("Mockly", "Mockly")]
+    [InlineData("  mOcKlY  ", "mOcKlY")]
+    [InlineData("_Acme", "_Acme")]
+    [InlineData("Contoso.Überlib", "Contoso.Überlib")]
+    public void Parse_accepts_a_bare_id_for_manifest_version_resolution(string input, string id)
     {
-        var exception = Assert.Throws<PackageSkillsException>(() => PackageCoordinate.Parse("Mockly"));
+        var coordinate = PackageCoordinate.Parse(input);
 
-        Assert.Contains("Mockly@1.10.0", exception.Message);
+        Assert.Equal(id, coordinate.Id);
+        Assert.Null(coordinate.Version);
+        Assert.Equal(id, coordinate.ToString());
     }
 
     [Theory]
@@ -74,6 +80,11 @@ public class PackageCoordinateTests
     [InlineData("Contoso..Widgets@1.0.0")]
     [InlineData("Contoso.-Widgets@1.0.0")]
     [InlineData("Contoso\u200B.Widgets@1.0.0")]
+    [InlineData("../evil")]
+    [InlineData("path/to/thing")]
+    [InlineData("Contoso..Widgets")]
+    [InlineData("Mockly*")]
+    [InlineData("not a package")]
     public void Parse_rejects_malformed_input(string input) =>
         Assert.Throws<PackageSkillsException>(() => PackageCoordinate.Parse(input));
 

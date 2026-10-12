@@ -131,7 +131,7 @@ public class PackageListerTests
     [Fact]
     public void Parse_keeps_both_versions_when_frameworks_resolve_a_package_differently()
     {
-        // Each version has its own folder in the global packages cache, so both matter.
+        // Each version has its own folder in the NuGet global-packages directory, so both matter.
         const string json = """
             {
               "projects": [

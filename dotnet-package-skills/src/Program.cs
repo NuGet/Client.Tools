@@ -32,9 +32,10 @@ namespace DotnetPackageSkills.Cli
             var package = new Option<string[]>("--package", "-p")
             {
                 Description =
-                    "Take skills from an exact package instead of a project, as Id@Version " +
-                    "(for example Mockly@1.10.0). Repeatable. Floating versions are not accepted.",
-                HelpName = "ID@VERSION",
+                    "Take skills from Id or Id@Version instead of a project (for example Mockly@1.10.0). " +
+                    "A bare Id uses the version tracked in the destination manifest. Repeatable. " +
+                    "Floating versions are not accepted.",
+                HelpName = "ID[@VERSION]",
                 Arity = ArgumentArity.OneOrMore,
                 AllowMultipleArgumentsPerToken = true,
             };
@@ -58,7 +59,7 @@ namespace DotnetPackageSkills.Cli
 
             var globalPackages = new Option<string?>("--global-packages")
             {
-                Description = "Override the NuGet global packages folder instead of asking the CLI.",
+                Description = "Override the NuGet global-packages directory instead of asking the CLI.",
                 HelpName = "PATH",
             };
 
@@ -226,7 +227,7 @@ namespace DotnetPackageSkills.Cli
                 """
                 Copies agent skills bundled inside NuGet packages into a folder your coding agent reads.
 
-                Package authors ship skills at skills/<package-id>-<skill-name>/SKILL.md inside the package. Restore extracts them to the NuGet global packages folder, which is outside your repository and which no coding agent scans. This tool bridges that gap.
+                Package authors ship skills at skills/<package-id>-<skill-name>/SKILL.md inside the package. Restore extracts them to the NuGet global-packages directory, which is outside your repository and which no coding agent scans. This tool bridges that gap.
                 """)
             {
                 install, list, uninstall,
@@ -249,7 +250,7 @@ namespace DotnetPackageSkills.Cli
                 {
                     result.AddError(
                         "--target and --package cannot be combined. Use --target to take versions " +
-                        "from a project, or --package to name exact packages yourself.");
+                        "from a project, or --package to select packages by ID or ID@VERSION.");
                 }
             }
         }
@@ -338,8 +339,7 @@ namespace DotnetPackageSkills.Cli
                 : $"Which skills should be installed? ({Path.GetFileName(discovered.Target)})";
 
         /// <summary>
-        /// Splits the uninstall filter, which unlike --package on install may omit the version
-        /// to mean "whichever version of this package is installed".
+        /// Splits the uninstall filter. An omitted version means whichever version is installed.
         /// </summary>
         internal static (string? Id, string? Version) ParseUninstallFilter(string? value)
         {

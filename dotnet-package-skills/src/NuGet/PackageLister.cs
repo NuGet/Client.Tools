@@ -97,8 +97,8 @@ public sealed class PackageLister(DotnetCli dotnet)
     {
         var report = Deserialize(json);
 
-        // Key on (id, version) because each resolved version has its own folder in the global
-        // packages cache. Keeping all versions also lets skill discovery report name collisions.
+        // Key on (id, version) because each version has a folder in the NuGet global-packages directory.
+        // Keeping all versions also lets skill discovery report name collisions.
         var found = new Dictionary<(string Id, string Version), PackageReferenceInfo>();
 
         foreach (var framework in report.Projects?.SelectMany(p => p.Frameworks ?? []) ?? [])

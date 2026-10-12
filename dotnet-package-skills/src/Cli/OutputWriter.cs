@@ -5,6 +5,8 @@ namespace DotnetPackageSkills.Cli;
 /// <summary>Renders results for people. There is no machine-readable report.</summary>
 public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = null)
 {
+    private const string GlobalPackagesLabel = "NuGet global-packages directory:";
+
     /// <param name="copied">
     /// False for <c>list</c>, which discovers without writing, so the report says "Found"
     /// rather than claiming files were placed.
@@ -46,7 +48,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
         }
         else
         {
-            // Packages missing from the cache look exactly like packages without skills, so
+            // Packages missing from the NuGet global-packages directory look like packages without skills, so
             // claim nothing about why the list is empty.
             output.WriteLine("No bundled skills found.");
         }
@@ -80,15 +82,18 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
 
     private void WriteContext(InstallResult result)
     {
-        output.WriteLine($"Target:      {TerminalText.Sanitize(result.Target ?? "(packages named on the command line)")}");
-        output.WriteLine($"NuGet cache: {TerminalText.Sanitize(result.GlobalPackagesFolder)}");
-        output.WriteLine($"Destination: {TerminalText.Sanitize(result.Destination)}");
+        WriteContextField("Target:", result.Target ?? "(packages named on the command line)");
+        WriteContextField(GlobalPackagesLabel, result.GlobalPackagesFolder);
+        WriteContextField("Destination:", result.Destination);
 
         var scope = result.Target is null ? "named explicitly" : "direct";
 
         output.WriteLine($"Scanned {Count(result.PackagesScanned, "package")} ({scope}).");
         output.WriteLine();
     }
+
+    private void WriteContextField(string label, string value) =>
+        output.WriteLine($"{label.PadRight(GlobalPackagesLabel.Length)} {TerminalText.Sanitize(value)}");
 
     /// <summary>
     /// Install never removes a skill because its package left the project, so say which ones

@@ -3,19 +3,20 @@ using NuGet.Versioning;
 
 namespace DotnetPackageSkills.NuGet;
 
-/// <summary>An exact package identity, written as <c>Id@Version</c> on the command line.</summary>
-public sealed partial record PackageCoordinate(string Id, string Version)
+/// <summary>A package selection, written as <c>Id</c> or <c>Id@Version</c> on the command line.</summary>
+public sealed partial record PackageCoordinate(string Id, string? Version = null)
 {
     public const char Separator = '@';
 
     /// <summary>
-    /// Parses <c>Id@Version</c>, rejecting anything that is not a single concrete version.
+    /// Parses <c>Id</c> or <c>Id@Version</c>, rejecting a supplied version that is not exact.
     /// </summary>
     /// <remarks>
     /// Version ranges and floating versions are refused rather than resolved. Resolving one
     /// means picking a version, and the only correct answer to "which version" comes from a
     /// project's restore — which is what <c>--target</c> is for. Guessing here would copy
     /// skills that describe a version the user does not actually reference.
+    /// An omitted version is resolved from the destination manifest, not from package directories.
     /// </remarks>
     public static PackageCoordinate Parse(string value)
     {
@@ -23,16 +24,17 @@ public sealed partial record PackageCoordinate(string Id, string Version)
 
         if (input.Length == 0)
         {
-            throw new PackageSkillsException("--package needs a value in the form Id@Version, for example Mockly@1.10.0.");
+            throw new PackageSkillsException(
+                "--package needs a package ID or Id@Version, for example Mockly@1.10.0. " +
+                "A bare ID uses the version tracked in the destination manifest.");
         }
 
         var separator = input.IndexOf(Separator);
 
         if (separator < 0)
         {
-            throw new PackageSkillsException(
-                $"'{input}' is missing a version. Write --package as Id@Version, for example {input}@1.10.0. " +
-                "To take versions from a project instead, use --target.");
+            ValidateId(input);
+            return new PackageCoordinate(input);
         }
 
         if (input.IndexOf(Separator, separator + 1) >= 0)
@@ -101,7 +103,7 @@ public sealed partial record PackageCoordinate(string Id, string Version)
 
     private static bool IsFloatingOrRange(string version) => version.IndexOfAny(RangeCharacters) >= 0;
 
-    public override string ToString() => $"{Id}{Separator}{Version}";
+    public override string ToString() => Version is null ? Id : $"{Id}{Separator}{Version}";
 
     // NuGet's PackageIdValidator pattern, with \z so a trailing newline can't end a match.
     [GeneratedRegex(@"^\w+([.-]\w+)*\z", RegexOptions.CultureInvariant)]

@@ -2,13 +2,13 @@ using DotnetPackageSkills.Infrastructure;
 
 namespace DotnetPackageSkills.NuGet;
 
-/// <summary>Locates the NuGet global packages folder, where restore extracts packages.</summary>
+/// <summary>Locates the NuGet global-packages directory, where restore extracts packages.</summary>
 public sealed class GlobalPackagesLocator(DotnetCli dotnet)
 {
     private const string Label = "global-packages:";
 
     /// <summary>
-    /// Resolves the folder, honouring an explicit override, then NUGET_PACKAGES, then
+    /// Resolves the directory, honouring an explicit override, then NUGET_PACKAGES, then
     /// whatever the CLI reports (which is the only thing that accounts for a
     /// <c>globalPackagesFolder</c> set in a nuget.config).
     /// </summary>
@@ -23,7 +23,8 @@ public sealed class GlobalPackagesLocator(DotnetCli dotnet)
             var resolved = Path.GetFullPath(overridePath, workingDirectory);
             return Directory.Exists(resolved)
                 ? resolved
-                : throw new PackageSkillsException($"--global-packages does not exist: {resolved}");
+                : throw new PackageSkillsException(
+                    $"The NuGet global-packages directory supplied through --global-packages does not exist: {resolved}");
         }
 
         if (Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } fromEnvironment &&
@@ -43,7 +44,7 @@ public sealed class GlobalPackagesLocator(DotnetCli dotnet)
         {
             throw new PackageSkillsException(
                 $"""
-                 Could not determine the NuGet global packages folder.
+                 Could not determine the NuGet global-packages directory.
                  'dotnet nuget locals global-packages --list' failed with exit code {result.ExitCode}:
                  {result.Diagnostics}
                  """);
@@ -55,7 +56,7 @@ public sealed class GlobalPackagesLocator(DotnetCli dotnet)
         {
             throw new PackageSkillsException(
                 $"""
-                 Could not find the global packages path in the output of 'dotnet nuget locals global-packages --list':
+                 Could not find the NuGet global-packages directory in the output of 'dotnet nuget locals global-packages --list':
                  {result.StandardOutput.Trim()}
                  """);
         }
@@ -64,7 +65,7 @@ public sealed class GlobalPackagesLocator(DotnetCli dotnet)
         {
             throw new PackageSkillsException(
                 $"""
-                 NuGet reports its global packages folder as '{path}', but that directory does not exist.
+                 The NuGet global-packages directory reported by NuGet is '{path}', but that directory does not exist.
                  Restore the project first — restore is what creates it.
                  """);
         }

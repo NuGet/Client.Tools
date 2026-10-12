@@ -48,7 +48,7 @@ public sealed class TempDirectory : IDisposable
         }
     }
 
-    /// <summary>Builds an extracted-package layout with a bundled skill, mirroring the NuGet cache.</summary>
+    /// <summary>Builds an extracted-package layout with a skill, mirroring the NuGet global-packages directory.</summary>
     public string CreatePackageWithSkill(string packageId, string version, params string[] skillNames)
     {
         var packageDirectory = CreateDirectory("packages", packageId.ToLowerInvariant(), version);

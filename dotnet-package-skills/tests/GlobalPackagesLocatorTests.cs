@@ -1,3 +1,4 @@
+using DotnetPackageSkills.Infrastructure;
 using DotnetPackageSkills.NuGet;
 
 namespace DotnetPackageSkills.Tests;
@@ -5,6 +6,19 @@ namespace DotnetPackageSkills.Tests;
 public class GlobalPackagesLocatorTests
 {
     private static string SomeAbsolutePath => Path.Combine(Path.GetTempPath(), "nuget-packages");
+
+    [Fact]
+    public void A_missing_override_uses_the_global_packages_directory_terminology()
+    {
+        using var temp = new TempDirectory();
+        var locator = new GlobalPackagesLocator(new DotnetCli(new UnusedRunner()));
+
+        var error = Assert.Throws<PackageSkillsException>(() => locator.Locate(temp.Combine("missing"), temp.Path));
+
+        Assert.Contains("NuGet global-packages directory", error.Message);
+        Assert.Contains("--global-packages", error.Message);
+        Assert.DoesNotContain("cache", error.Message);
+    }
 
     [Fact]
     public void ParseListOutput_reads_the_path_from_current_SDK_output()
@@ -51,4 +65,10 @@ public class GlobalPackagesLocatorTests
     [Fact]
     public void ParseListOutput_returns_null_when_the_label_has_no_value() =>
         Assert.Null(GlobalPackagesLocator.ParseListOutput("global-packages:   "));
+
+    private sealed class UnusedRunner : IProcessRunner
+    {
+        public ProcessResult Run(string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null) =>
+            throw new InvalidOperationException("An explicit directory override must not invoke dotnet.");
+    }
 }

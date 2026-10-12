@@ -1,12 +1,12 @@
 namespace DotnetPackageSkills.NuGet;
 
 /// <summary>
-/// Maps a package id and version to its folder inside the global packages cache.
+/// Maps a package id and version to its folder inside the NuGet global-packages directory.
 /// </summary>
 /// <remarks>
 /// Restore extracts each package to <c>&lt;global-packages&gt;/&lt;id&gt;/&lt;version&gt;/</c>
 /// with both segments lowercased and the version normalized. This mirrors NuGet's own
-/// normalization rules. A case-insensitive directory scan also supports older cache
+/// normalization rules. A case-insensitive directory scan also supports older directory
 /// layouts that retained an original valid version spelling.
 /// </remarks>
 public static class PackagePathResolver
@@ -28,7 +28,7 @@ public static class PackagePathResolver
             return candidate;
         }
 
-        // Older cache layouts may retain the original spelling of a valid version.
+        // Older NuGet global-packages directory layouts may retain a valid version's original spelling.
         foreach (var directory in Directory.EnumerateDirectories(packageDirectory))
         {
             var name = Path.GetFileName(directory);

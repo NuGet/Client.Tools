@@ -7,6 +7,94 @@ namespace DotnetPackageSkills.Tests;
 public class CommandLineTests
 {
     [Theory]
+    [InlineData("install", "--package")]
+    [InlineData("install", "-p")]
+    [InlineData("list", "--package")]
+    [InlineData("list", "-p")]
+    public void Bare_package_ids_use_the_selected_destination_manifest(string command, string option)
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        temp.CreatePackageWithSkill("Mockly", "9.0.0", "wrong-version");
+        var destination = temp.CreateDirectory("custom-skills");
+        var manifest = new InstallManifest();
+        manifest.SetSkills([new TrackedSkill("Mockly", "1.10", "usage")]);
+        manifest.Save(destination);
+        var before = File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = CommandLineBuilder.Invoke(
+            [command, option, "mOcKlY", "--destination", destination, "--global-packages", temp.Combine("packages")],
+            output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error.ToString());
+        Assert.Equal(command == "install", File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+        Assert.False(Directory.Exists(Path.Combine(destination, "wrong-version")));
+        Assert.Equal("1.10.0", InstallManifest.Load(destination).Packages["mockly"].Version);
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
+    }
+
+    [Theory]
+    [InlineData("install")]
+    [InlineData("list")]
+    public void Bare_untracked_ids_require_an_explicit_version_without_searching_package_directories(string command)
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "first");
+        temp.CreatePackageWithSkill("Mockly", "2.0.0", "second");
+        var destination = temp.Combine("untracked-skills");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = CommandLineBuilder.Invoke(
+            [command, "-p", "Mockly", "-d", destination, "--global-packages", temp.Combine("packages")],
+            output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(destination));
+    }
+
+    [Theory]
+    [InlineData("install")]
+    [InlineData("list")]
+    public void Package_help_documents_optional_versions_and_the_manifest_source(string command)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        Assert.Equal(0, CommandLineBuilder.Invoke([command, "--help"], output, error));
+
+        Assert.Empty(error.ToString());
+        Assert.Contains("ID[@VERSION]", output.ToString());
+        Assert.Contains("manifest", output.ToString());
+        Assert.Contains("NuGet global-packages directory", output.ToString());
+        Assert.DoesNotContain("global packages folder", output.ToString());
+    }
+
+    [Fact]
+    public void List_with_an_explicit_version_does_not_need_a_readable_destination_manifest()
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("Mockly", "2.0.0", "explicit");
+        var destination = temp.CreateDirectory("custom-skills");
+        var manifest = temp.CreateFile($"custom-skills/{InstallManifest.FileName}", "{ invalid json");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = CommandLineBuilder.Invoke(
+            ["list", "-p", "Mockly@2.0.0", "-d", destination, "--global-packages", temp.Combine("packages")],
+            output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error.ToString());
+        Assert.False(Directory.Exists(Path.Combine(destination, "explicit")));
+        Assert.Equal("{ invalid json", File.ReadAllText(manifest));
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData(" ")]
     [InlineData("\t\r\n")]
