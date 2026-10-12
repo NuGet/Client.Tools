@@ -591,8 +591,7 @@ public class SkillInstallServiceTests
         using var output = new StringWriter();
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
-        Assert.Contains($"{"Destination:".PadRight("NuGet global-packages directory:".Length)} {result.Destination}",
-            output.ToString());
+        Assert.Contains($"Destination: {result.Destination}", output.ToString());
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", output.ToString());
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", error.Message);
         Assert.DoesNotContain("--destination", output.ToString());

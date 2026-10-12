@@ -23,26 +23,6 @@ public class OutputWriterTests
     }
 
     [Fact]
-    public void Package_context_values_align_with_the_global_packages_directory_label()
-    {
-        using var output = new StringWriter();
-        var result = ResultWithCollision() with
-        {
-            Target = "solution.sln",
-            GlobalPackagesFolder = "package-directory",
-            Destination = "skills-directory",
-        };
-
-        new OutputWriter(output).WriteInstallReport(result, copied: true);
-
-        var lines = output.ToString().Split(Environment.NewLine);
-        var expectedColumn = "NuGet global-packages directory:".Length + 1;
-        Assert.Equal(expectedColumn, lines[0].IndexOf(result.Target, StringComparison.Ordinal));
-        Assert.Equal(expectedColumn, lines[1].IndexOf(result.GlobalPackagesFolder, StringComparison.Ordinal));
-        Assert.Equal(expectedColumn, lines[2].IndexOf(result.Destination, StringComparison.Ordinal));
-    }
-
-    [Fact]
     public void The_trust_notice_is_a_single_line()
     {
         using var output = new StringWriter();
@@ -159,9 +139,8 @@ public class OutputWriterTests
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
         var report = output.ToString();
-        var width = "NuGet global-packages directory:".Length;
-        Assert.Contains($"{"Target:".PadRight(width)} {TerminalText.Sanitize(path)}", report);
-        Assert.Contains($"{"Destination:".PadRight(width)} {TerminalText.Sanitize(path)}", report);
+        Assert.Contains($"Target:      {TerminalText.Sanitize(path)}", report);
+        Assert.Contains($"Destination: {TerminalText.Sanitize(path)}", report);
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", report);
         Assert.DoesNotContain("dotnet-package-skills uninstall", report);
         Assert.DoesNotContain("--target", report);
