@@ -1,7 +1,7 @@
 ---
 title: dotnet-package-skills command
 description: The 'dotnet-package-skills' command copies agent skills bundled in NuGet packages into a repository, where coding agents can find them.
-ms.date: 09/24/2026
+ms.date: 10/12/2026
 ---
 # dotnet-package-skills
 
@@ -19,10 +19,10 @@ ms.date: 09/24/2026
 ```dotnetcli
 dotnet-package-skills install [-d|--destination <PATH>] [--dry-run]
     [--global-packages <PATH>] [-i|--interactive]
-    [-p|--package <ID@VERSION>...] [-t|--target <PATH>]
+    [-p|--package <ID[@VERSION]>...] [-t|--target <PATH>]
 
 dotnet-package-skills list [-d|--destination <PATH>] [--global-packages <PATH>]
-    [-p|--package <ID@VERSION>...] [-t|--target <PATH>]
+    [-p|--package <ID[@VERSION]>...] [-t|--target <PATH>]
 
 dotnet-package-skills uninstall [-d|--destination <PATH>] [--dry-run]
     [-i|--interactive] [-p|--package <ID[@VERSION]>]
@@ -37,7 +37,7 @@ dotnet-package-skills --version
 
 ## Description
 
-Some NuGet packages include *agent skills*: instructions from the package author that teach coding agents how to use the package. Each skill is a folder that contains a `SKILL.md` file and any supporting files. Restore extracts these folders into the NuGet global packages folder, outside your repository, where agents don't look for them. The `dotnet-package-skills` command copies them into your repository.
+Some NuGet packages include *agent skills*: instructions from the package author that teach coding agents how to use the package. Each skill is a folder that contains a `SKILL.md` file and any supporting files. Restore extracts these folders into the NuGet global-packages directory, outside your repository, where agents don't look for them. The `dotnet-package-skills` command copies them into your repository.
 
 To install the skills that your packages ship, run these commands from the root of your repository:
 
@@ -56,17 +56,18 @@ The command reads only the direct package references of your solution or project
 This article uses these terms:
 
 - **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. Reports show the target after `Target:`.
+- **NuGet global-packages directory**: the NuGet package storage directory from which `install` and `list` read package contents. Reports show it after `NuGet global-packages directory:`.
 - **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. Reports show it after `Destination:`.
 - **Tracked skill**: a skill that the command installed, as recorded in the [manifest](#manifest-file) in the skills folder. The command updates and removes only tracked skills, never folders that you created.
 - **Stale skill**: a tracked skill whose package the target no longer references at the version that the skill came from.
 
 ### List available skills
 
-`dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global packages folder:
+`dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
 
 ```output
 Target:      C:\src\MyApp\MyApp.slnx
-NuGet cache: C:\packages
+NuGet global-packages directory: C:\packages
 Destination: C:\src\MyApp\.agents\skills
 Scanned 2 packages (direct).
 
@@ -77,11 +78,11 @@ Found 4 skills:
   fabrikam.testing-fixtures (Fabrikam.Testing 1.4.0)
 ```
 
-`NuGet cache` is the NuGet global packages folder that skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder, so it doesn't show which skills are installed; the [manifest](#manifest-file) records those.
+The `NuGet global-packages directory` value is where skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder for package contents, but it does read the [manifest](#manifest-file) there when a bare `--package <ID>` needs its tracked version.
 
-Restore the target before you run the command. The command doesn't run `dotnet restore` itself, although with the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global packages folder, `list` skips the package and `install` stops.
+Restore the target before you run the command. The command doesn't run `dotnet restore` itself, although with the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global-packages directory, `list` skips the package and `install` stops.
 
-To read skills from specific packages instead of a target, specify `--package <ID>@<VERSION>`. The package must already be in the NuGet global packages folder, because the command doesn't download it. If the package isn't there, the command finds no skills in it and doesn't warn you.
+To read skills from specific packages instead of a target, specify `--package <ID>` or `--package <ID>@<VERSION>`. A bare ID resolves only to the package version tracked in the destination's `.dotnet-package-skills.json` manifest. If the package isn't tracked there, include an exact version; the command doesn't choose a version from the NuGet global-packages directory because that directory can contain multiple versions. The resolved package must already be in the NuGet global-packages directory, because the command doesn't download it. If the package isn't there, the command finds no skills in it and doesn't warn you.
 
 ### Install and update skills
 
@@ -116,9 +117,9 @@ Use uninstall with --stale to remove skills that no longer match the project.
 > [!WARNING]
 > `install` replaces the whole folder of each skill that it copies, including your edits and any files that you added. Keep your own instructions in separate skill folders; the command never changes folders that it didn't install.
 
-With `--package`, `install` does the same for the packages that you name, and leaves all other skills alone. With `--interactive`, it only adds the skills that you choose; see [Choose skills interactively](#choose-skills-interactively). To preview an installation, add `--dry-run`. The report then lists the planned changes under `Would copy` and `Would remove`, and nothing changes.
+With `--package`, `install` does the same for the packages that you name, and leaves all other skills alone. A bare package ID uses the version tracked in the destination manifest; an untracked package needs an exact version. With `--interactive`, it only adds the skills that you choose; see [Choose skills interactively](#choose-skills-interactively). To preview an installation, add `--dry-run`. The report then lists the planned changes under `Would copy` and `Would remove`, and nothing changes.
 
-The skills folder holds the skills of only one version of each package. If the target references a package at more than one version, or `--package` names more than one, `install` stops and names the versions. [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) can help align package versions across the projects in a repository.
+The skills folder holds the skills of only one version of each package. If the target references a package at more than one version, or the `--package` values select more than one, `install` stops and names the versions. [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management) can help align package versions across the projects in a repository.
 
 Each tracked skill belongs to the package that it was copied from, and changing one package's version never removes or replaces another package's skills. Skill names are compared without regard to case. If two packages ship a skill with the same name, only one of them is copied. `install` also never overwrites a folder that it didn't install. It lists the skills that it skips in the report under `Warning:`. If a package moves to a version that no longer ships a skill, and another package ships a skill with that name, `install` stops without changing anything, instead of handing the name to the other package. Use `uninstall` with `--package` to remove the current owner's skills, and then run `install` again to copy the other package's skill.
 
@@ -185,7 +186,7 @@ Each row shows a skill's name and the `description` from its `SKILL.md` file. `>
 `install -i` only adds the skills that you check; it never updates or removes skills. Because of that, it first checks that the tracked skills match the packages, and stops before the checklist opens if they don't:
 
 - With a target, it stops if any tracked skill is stale. Run `uninstall --stale`, and then try again.
-- With `--package`, it stops if a named package is installed at another version. Run `uninstall --package <ID>` first, or run `install --package` without `--interactive` to switch versions.
+- With `--package`, it stops if an explicitly named package version is installed at another version. Run `uninstall --package <ID>` first, or run `install --package <ID>@<VERSION>` without `--interactive` to switch versions. A bare package ID selects the version that is already tracked.
 
 Skills that `install` would skip because their name is in use aren't listed; the report after the checklist names them. If every skill is already installed, the checklist doesn't open, and the command reports `Nothing new to install.`
 
@@ -226,9 +227,10 @@ Each of these errors stops the command before it changes any skills or the manif
 | Problem | What to do |
 | --- | --- |
 | `dotnet list package` fails, for example because the target isn't restored. | Fix what it reports, for example by running `dotnet restore`, and then run the command again. |
-| `install` reports packages that are missing from the NuGet global packages folder. | Restore the target into that folder, and then run `install` again. If you use `--global-packages`, restore into the same folder, for example with `dotnet restore --packages <PATH>`. |
-| The target references a package at more than one version, or `--package` names more than one. | Align the versions, for example with [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management). With `--package`, name one version of each package. |
-| `install --interactive` says that installed skills don't match the target, or that a named package is installed at another version. | Use `uninstall` with `--stale` for stale skills, or with `--package` for a named package installed at another version. Then try again. To switch a package to another version instead, run `install` without `--interactive`. |
+| `install` reports packages that are missing from the NuGet global-packages directory. | Restore the target into the NuGet global-packages directory, and then run `install` again. If you use `--global-packages`, restore into the same directory, for example with `dotnet restore --packages <PATH>`. |
+| `install` or `list` can't resolve a bare `--package <ID>`. | The package isn't tracked in the destination manifest. Specify `--package <ID>@<VERSION>`; the command doesn't choose a version from the NuGet global-packages directory because it can contain multiple versions. |
+| The target references a package at more than one version, or the `--package` values select more than one. | Align the versions, for example with [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management). With `--package`, select only one version of each package. |
+| `install --interactive` says that installed skills don't match the target, or that an explicitly named package version is installed at another version. | Use `uninstall` with `--stale` for stale skills, or with `--package` for a named package installed at another version. Then try again. To switch a package to another version instead, run `install --package <ID>@<VERSION>` without `--interactive`. |
 | The manifest can't be read. | Resolve any merge conflict in `.dotnet-package-skills.json`, or restore the file from source control. If the error says that the manifest uses a newer format version, update the tool. If it says that a pre-release version of the tool wrote the manifest, move the skills folder aside, and then run `install` again. |
 | Another run of the command is using the skills folder. | The command waits up to 30 seconds for the other run to finish, and then stops. Run the command again after the other run finishes. |
 | The terminal is too small for the checklist. | Enlarge the window, or run the command without `--interactive`. |
@@ -255,7 +257,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`-d|--destination <PATH>`**
 
-  For `install`, `list`, and `uninstall`, specifies the skills folder. Defaults to `.agents/skills`. A relative path is resolved from the current directory, even when `--target` points somewhere else. `list` only shows the folder in its report. To remove skills, specify the folder that they were installed to.
+  For `install`, `list`, and `uninstall`, specifies the skills folder. Defaults to `.agents/skills`. A relative path is resolved from the current directory, even when `--target` points somewhere else. `list` doesn't copy anything to the folder, but it reads the manifest there to resolve a bare `--package <ID>`. To remove skills, specify the folder that they were installed to.
 
 - **`--dry-run`**
 
@@ -263,7 +265,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`--global-packages <PATH>`**
 
-  For `install` and `list`, specifies the NuGet global packages folder to read packages from. The folder must exist. This option overrides the `NUGET_PACKAGES` environment variable and the folder configured for NuGet, but it doesn't change where restore extracts packages. Unlike `--destination`, a relative path is resolved from the target's directory, or from the current directory when you use `--package`.
+  For `install` and `list`, specifies the NuGet global-packages directory from which packages are read. The directory must exist. This option overrides the `NUGET_PACKAGES` environment variable and the NuGet global-packages directory configured for NuGet, but it doesn't change the NuGet global-packages directory used by restore. Unlike `--destination`, a relative path is resolved from the target's directory, or from the current directory when you use `--package`.
 
 - **`-?|-h|--help`**
 
@@ -273,13 +275,13 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
   For `install` and `uninstall`, opens a checklist for choosing the skills to install or remove. `install` lists only skills that aren't installed, and only adds skills. Requires a terminal when there's something to choose. Can be combined with `--dry-run`, and with either `--package` or, for `uninstall`, `--stale`. For more information, see [Choose skills interactively](#choose-skills-interactively).
 
-- **`-p|--package <ID@VERSION>`**
+- **`-p|--package <ID[@VERSION]>`**
 
-  For `install` and `list`, reads skills from the specified package instead of a target. Specify an exact version, such as `Contoso.Widgets@2.3.0`; floating versions and version ranges aren't accepted. Repeat the option to name several packages. Duplicates, such as `Mockly@1.10` and `Mockly@1.10.0`, count once. `install` accepts only one version of each package, while `list` shows every version that you name. The package must already be in the NuGet global packages folder; if it isn't, the command finds no skills in it and doesn't warn you. Can't be combined with `--target`.
+  For `install` and `list`, reads skills from the specified package instead of a target. A bare ID, such as `Contoso.Widgets`, resolves only to the version tracked for that package in `.dotnet-package-skills.json` in the destination. If the package isn't tracked, include an exact version, such as `Contoso.Widgets@2.3.0`; the command doesn't choose from the versions in the NuGet global-packages directory. Floating versions and version ranges aren't accepted. Repeat the option to name several packages. Duplicates, such as `Mockly@1.10` and `Mockly@1.10.0`, count once. `install` accepts only one version of each package, while `list` shows every version that the options select. The package must already be in the NuGet global-packages directory; if it isn't, the command finds no skills in it and doesn't warn you. Can't be combined with `--target`.
 
 - **`-p|--package <ID[@VERSION]>`**
 
-  For `uninstall`, removes only the skills of the specified package. With a version, removes them only if that version is installed. Package IDs are compared without regard to case, and `1.10` matches `1.10.0`. Specify the option at most once; a blank value is an error. Can't be combined with `--stale`.
+  For `uninstall`, filters the packages tracked in the destination manifest. A bare ID removes the skills of whichever version is tracked for that package; `ID@VERSION` removes them only if the manifest tracks that version. Package IDs are compared without regard to case, and `1.10` matches `1.10.0`. Specify the option at most once; a blank value is an error. Can't be combined with `--stale`.
 
 - **`--stale`**
 
@@ -331,7 +333,19 @@ If a file system error interrupts a copy or removal, the command reports it but 
   dotnet-package-skills install --interactive
   ```
 
-- Install the skills of exact package versions, without a solution or project:
+- Reinstall the skills of the package version tracked in the destination manifest:
+
+  ```dotnetcli
+  dotnet-package-skills install --package Contoso.Widgets
+  ```
+
+- List the skills of the package version tracked in the destination manifest:
+
+  ```dotnetcli
+  dotnet-package-skills list --package Contoso.Widgets
+  ```
+
+- Install the skills of untracked package versions, without a solution or project:
 
   ```dotnetcli
   dotnet-package-skills install --package Contoso.Widgets@2.3.0 --package Mockly@1.10.0
