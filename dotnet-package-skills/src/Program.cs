@@ -19,22 +19,33 @@ namespace DotnetPackageSkills.Cli
         private const string DefaultDestination = InstallRequest.DefaultDestination;
 
         public static int Invoke(string[] args, TextWriter? output = null, TextWriter? error = null) =>
-            CommandLineDiagnostics.Invoke(Build().Parse(args), output ?? Console.Out, error ?? Console.Error);
+            Invoke(args, new ProcessRunner(), output, error);
 
-        public static RootCommand Build()
+        internal static int Invoke(
+            string[] args,
+            IProcessRunner runner,
+            TextWriter? output = null,
+            TextWriter? error = null) =>
+            CommandLineDiagnostics.Invoke(Build(runner).Parse(args), output ?? Console.Out, error ?? Console.Error);
+
+        public static RootCommand Build() => Build(new ProcessRunner());
+
+        internal static RootCommand Build(IProcessRunner runner)
         {
             var target = new Option<string?>("--target", "-t")
             {
-                Description = "Solution or project to inspect. Defaults to searching the current directory.",
+                Description =
+                    "Solution or project to inspect, or to resolve untracked bare package IDs. " +
+                    "Defaults to searching the current directory.",
                 HelpName = "PATH",
             };
 
             var package = new Option<string[]>("--package", "-p")
             {
                 Description =
-                    "Take skills from Id or Id@Version instead of a project (for example Mockly@1.10.0). " +
-                    "A bare Id uses the version tracked in the destination manifest. Repeatable. " +
-                    "Floating versions are not accepted.",
+                    "Take skills from Id or Id@Version (for example Mockly@1.10.0). " +
+                    "A bare Id uses the destination manifest first, then --target or an auto-detected target. " +
+                    "Repeatable. Floating versions are not accepted.",
                 HelpName = "ID[@VERSION]",
                 Arity = ArgumentArity.OneOrMore,
                 AllowMultipleArgumentsPerToken = true,
@@ -118,11 +129,10 @@ namespace DotnetPackageSkills.Cli
             {
                 target, package, destination, globalPackages, dryRun, interactive,
             };
-            install.Validators.Add(RejectTargetWithPackage);
             install.SetAction(parseResult => Run(() =>
             {
                 var request = BuildRequest(parseResult);
-                var service = new SkillInstallService(new ProcessRunner());
+                var service = new SkillInstallService(runner);
 
                 var result = parseResult.GetValue(interactive)
                     ? InstallInteractively(service, request)
@@ -141,11 +151,10 @@ namespace DotnetPackageSkills.Cli
             {
                 target, package, destination, globalPackages,
             };
-            list.Validators.Add(RejectTargetWithPackage);
             list.SetAction(parseResult => Run(() =>
             {
                 var request = BuildRequest(parseResult) with { DryRun = true };
-                var result = new SkillInstallService(new ProcessRunner()).Discover(request);
+                var result = new SkillInstallService(runner).Discover(request);
                 new OutputWriter(Console.Out).WriteInstallReport(result, copied: false);
             }));
 
@@ -199,7 +208,7 @@ namespace DotnetPackageSkills.Cli
                 var isDryRun = parseResult.GetValue(dryRun);
                 var (id, version) = ParseUninstallFilter(parseResult.GetValue(uninstallPackage));
                 var root = Path.GetFullPath(destinationValue, workingDirectory);
-                var service = new SkillInstallService(new ProcessRunner());
+                var service = new SkillInstallService(runner);
                 var references = parseResult.GetValue(stale)
                     ? service.ReadReferences(parseResult.GetValue(staleTarget), workingDirectory)
                     : null;
@@ -242,17 +251,6 @@ namespace DotnetPackageSkills.Cli
                 GlobalPackagesOverride = parseResult.GetValue(globalPackages),
                 DryRun = parseResult.GetValue(dryRun),
             };
-
-            void RejectTargetWithPackage(System.CommandLine.Parsing.CommandResult result)
-            {
-                // Both would answer "which packages", and combining them hides which one won.
-                if (result.GetResult(target) is not null && result.GetResult(package) is not null)
-                {
-                    result.AddError(
-                        "--target and --package cannot be combined. Use --target to take versions " +
-                        "from a project, or --package to select packages by ID or ID@VERSION.");
-                }
-            }
         }
 
         /// <summary>

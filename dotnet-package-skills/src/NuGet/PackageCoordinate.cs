@@ -16,7 +16,8 @@ public sealed partial record PackageCoordinate(string Id, string? Version = null
     /// means picking a version, and the only correct answer to "which version" comes from a
     /// project's restore — which is what <c>--target</c> is for. Guessing here would copy
     /// skills that describe a version the user does not actually reference.
-    /// An omitted version is resolved from the destination manifest, not from package directories.
+    /// An omitted version is resolved from the destination manifest first, then from a target,
+    /// never from package directories.
     /// </remarks>
     public static PackageCoordinate Parse(string value)
     {
@@ -26,7 +27,7 @@ public sealed partial record PackageCoordinate(string Id, string? Version = null
         {
             throw new PackageSkillsException(
                 "--package needs a package ID or Id@Version, for example Mockly@1.10.0. " +
-                "A bare ID uses the version tracked in the destination manifest.");
+                "A bare ID uses the destination manifest first, then --target or an auto-detected target.");
         }
 
         var separator = input.IndexOf(Separator);

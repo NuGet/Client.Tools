@@ -10,10 +10,14 @@ public sealed record InstallRequest
     /// <summary>Where skills go when no destination is given.</summary>
     public const string DefaultDestination = ".agents/skills";
 
-    /// <summary>Solution or project to inspect. Ignored when <see cref="Packages"/> is set.</summary>
+    /// <summary>
+    /// Solution or project to inspect, or to resolve bare package IDs that the manifest does not track.
+    /// </summary>
     public string? Target { get; init; }
 
-    /// <summary>Packages to inspect, with exact versions or versions taken from the destination manifest.</summary>
+    /// <summary>
+    /// Packages to inspect, with exact versions or bare IDs resolved from the manifest or target.
+    /// </summary>
     public IReadOnlyList<PackageCoordinate> Packages { get; init; } = [];
 
     public required string Destination { get; init; }
@@ -105,23 +109,26 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
     private InstallResult DiscoverFromCoordinates(InstallRequest request)
     {
-        var packages = ResolveCoordinates(request).DistinctBy(package =>
+        var (resolved, resolutionTarget) = ResolveCoordinates(request);
+        var packages = resolved.DistinctBy(package =>
             (package.Id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(package.Version))).ToArray();
-        var globalPackages = LocateGlobalPackages(request, request.WorkingDirectory);
+        var globalPackages = LocateGlobalPackages(
+            request,
+            resolutionTarget is null ? request.WorkingDirectory : Path.GetDirectoryName(resolutionTarget));
 
         var (skills, skipped, candidates) = Collect(
             globalPackages,
             packages.Select(coordinate => (coordinate.Id, coordinate.Version)));
 
-        return Build(request, target: null, globalPackages, packages.Length, skills, skipped)
-            with
-            {
-                ResolvedPackages = packages,
-                AllCandidates = candidates,
-            };
+        var result = Build(request, target: null, globalPackages, packages.Length, skills, skipped);
+        return result with
+        {
+            ResolvedPackages = packages,
+            AllCandidates = candidates,
+        };
     }
 
-    private static IReadOnlyList<PackageReferenceInfo> ResolveCoordinates(InstallRequest request)
+    private (IReadOnlyList<PackageReferenceInfo> Packages, string? Target) ResolveCoordinates(InstallRequest request)
     {
         InstallManifest? manifest = null;
         var destination = Path.GetFullPath(request.Destination, request.WorkingDirectory);
@@ -132,6 +139,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         }
 
         var packages = new List<PackageReferenceInfo>(request.Packages.Count);
+        var unresolved = new List<PackageCoordinate>();
         foreach (var package in request.Packages)
         {
             PackageCoordinate.ValidateId(package.Id);
@@ -140,11 +148,8 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             {
                 if (manifest is null || !manifest.Packages.TryGetValue(package.Id.ToLowerInvariant(), out var tracked))
                 {
-                    throw new PackageSkillsException(
-                        $"Package '{package.Id}' is not tracked in the destination manifest " +
-                        $"'{Path.Combine(destination, InstallManifest.FileName)}'. " +
-                        "Specify ID@VERSION to choose an exact version. " +
-                        "The tool does not guess a version from the NuGet global-packages directory.");
+                    unresolved.Add(package);
+                    continue;
                 }
 
                 version = tracked.Version;
@@ -153,7 +158,64 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             packages.Add(new PackageReferenceInfo(package.Id, version));
         }
 
-        return packages;
+        if (unresolved.Count == 0)
+        {
+            return (packages, null);
+        }
+
+        string target;
+        try
+        {
+            target = TargetLocator.Resolve(request.Target, request.WorkingDirectory);
+        }
+        catch (PackageSkillsException error) when (string.IsNullOrWhiteSpace(request.Target))
+        {
+            var ids = unresolved
+                .Select(package => package.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var label = ids.Length == 1
+                ? $"bare package ID '{ids[0]}'"
+                : $"bare package IDs {string.Join(", ", ids.Select(id => $"'{id}'"))}";
+
+            throw new PackageSkillsException(
+                $"Could not resolve {label} because target resolution was unavailable. " +
+                $"{error.Message} Pass --target to select a solution or project, or specify ID@VERSION.",
+                error);
+        }
+
+        var targetPackages = new PackageLister(dotnet).List(target);
+
+        foreach (var package in unresolved)
+        {
+            var versions = targetPackages
+                .Where(candidate => candidate.Id.Equals(package.Id, StringComparison.OrdinalIgnoreCase))
+                .GroupBy(candidate => PackagePathResolver.NormalizeVersion(candidate.Version))
+                .Select(group => new PackageReferenceInfo(group.First().Id, group.First().Version))
+                .OrderBy(candidate => PackagePathResolver.NormalizeVersion(candidate.Version), StringComparer.Ordinal)
+                .ToList();
+
+            if (versions.Count == 0)
+            {
+                throw new PackageSkillsException(
+                    $"Package '{package.Id}' is not a direct package resolved for target '{target}'. " +
+                    "Specify ID@VERSION to choose an exact version. No skills were changed.");
+            }
+
+            if (versions.Count > 1)
+            {
+                throw new PackageSkillsException(
+                    $"Package '{package.Id}' resolves to more than one version in target '{target}': " +
+                    $"{string.Join(", ", versions.Select(candidate => candidate.Version))}. " +
+                    "Narrow --target to a project that resolves one version, or specify ID@VERSION. " +
+                    "No skills were changed.");
+            }
+
+            packages.Add(new PackageReferenceInfo(package.Id, versions[0].Version));
+        }
+
+        return (packages, target);
     }
 
     private string LocateGlobalPackages(InstallRequest request, string? preferredDirectory) =>

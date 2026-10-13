@@ -47,7 +47,7 @@ public class PackageCoordinateTests
     [InlineData("  mOcKlY  ", "mOcKlY")]
     [InlineData("_Acme", "_Acme")]
     [InlineData("Contoso.Überlib", "Contoso.Überlib")]
-    public void Parse_accepts_a_bare_id_for_manifest_version_resolution(string input, string id)
+    public void Parse_accepts_a_bare_id_for_manifest_or_target_version_resolution(string input, string id)
     {
         var coordinate = PackageCoordinate.Parse(input);
 

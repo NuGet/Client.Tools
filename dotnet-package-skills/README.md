@@ -57,21 +57,25 @@ project. Instead, it lists that skill, and you remove it later with
 
 ### Choose what to read skills from
 
-There are three ways to tell the tool which packages to read skills from.
+You can inspect a whole target, select exact package versions, or resolve bare package IDs from
+the destination manifest and a target.
 
 ```bash
 dotnet-package-skills install                              # auto-detect solution or project
 dotnet-package-skills install --target src/MyApp.slnx      # a specific solution or project
 dotnet-package-skills install --package Mockly@1.10.0      # exact packages, no project needed
-dotnet-package-skills list --package Mockly                # version tracked in the destination manifest
+dotnet-package-skills list --package Mockly                # manifest version, then auto-detected target
+dotnet-package-skills install -p Mockly -t src/MyApp.slnx  # manifest version, then this target
 ```
 
-`-p` and `--package` accept `ID` or `ID@VERSION` for install and list. A bare ID uses the exact
-version recorded for that package in the selected destination's `.dotnet-package-skills.json`.
-Package IDs are matched without regard to case. Use `--destination` to select a different
-manifest. If the package is not tracked there, specify `ID@VERSION`; the tool never chooses a
-version by scanning the NuGet global-packages directory. An explicit version does not depend
-on the tracked version.
+`-p` and `--package` accept `ID` or `ID@VERSION` for install and list. Package IDs are matched
+without regard to case. For each bare ID, the tool first uses the exact version recorded in the
+selected destination's `.dotnet-package-skills.json`. Use `--destination` to select a different
+manifest. If that valid manifest does not track the ID, the tool resolves a target: the one from
+`--target`, or the solution or project it auto-detects under the current directory. It runs
+`dotnet list <target> package --format json` and uses the package's resolved direct version.
+Repeated appearances at the same normalized version across projects are one match. Different
+resolved versions are ambiguous: narrow `--target` to one project, or specify `ID@VERSION`.
 
 `--package` is repeatable. A supplied version must be **exact**. The tool refuses `Mockly@1.*`
 and `Mockly@[1.0,2.0)`. Resolving a range means picking one version from it, and the only correct
@@ -79,20 +83,26 @@ answer to "which version" comes from a project's own restore step. `--target` gi
 answer. If the tool guessed a version instead, it could copy skills that describe a release you
 do not actually reference.
 
-`--target` and `--package` cannot combine, because both options answer the same question.
+`--target` and `--package` can combine. The target is consulted only for bare IDs that the
+manifest does not track. Manifest versions stay authoritative even when `--target` is present.
+An explicit `ID@VERSION` does not read the manifest or target to resolve its version. If every
+selector is explicit or manifest-resolved, the tool does not run `dotnet list package`.
+The tool never chooses a version by scanning the NuGet global-packages directory.
 
 NuGet's version parser checks exact versions, including the older one-, two-, and four-part
 forms. Invalid prerelease or metadata labels are rejected. Package comparisons normalize
 padding and letter case and ignore build metadata, so `1.10` and `1.10.0+build.1` identify the
 same release. Reports retain an explicit version's original text, or show the tracked version
-when you supply a bare ID. Equivalent bare and explicit selections are inspected only once.
+when you supply a bare ID. Equivalent explicit, manifest-resolved, and target-resolved selections
+are inspected only once.
 
 When you name packages explicitly, the tool touches only the packages you name. It leaves every
-other installed skill alone. A target describes the project's complete set of packages. Because
-of this, a target install can also tell you which installed skills belong to a package that the
-project no longer references. When a package that the target resolves is missing from the
-NuGet global-packages directory, `install` stops before it changes anything. Restore the project
-first, and then try again.
+other installed skill alone. Using a target to resolve a bare `--package` ID does not turn that
+selection into a full-target install. Without `--package`, a target describes the project's
+complete set of packages. Because of this, a full-target install can also tell you which installed
+skills belong to a package that the project no longer references. When a package that a full
+target resolves is missing from the NuGet global-packages directory, `install` stops before it
+changes anything. Restore the project first, and then try again.
 
 The tool expects one version of each package.
 [Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management)
@@ -180,10 +190,12 @@ Adding a skill makes sense only when the installed skills already match the pack
 this, an interactive install stops before the checklist opens, and changes nothing, in these
 cases:
 
-- The target resolves a package to more than one version, or `--package` selects more than one
-  version of a package.
-- With a target, a package that the target resolves is missing from the NuGet global-packages directory.
-- With a target, an installed skill is stale. Use uninstall with `--stale` first.
+- The full target resolves a package to more than one version, a bare `--package` ID is ambiguous
+  in its resolution target, or the selectors choose more than one version of a package.
+- With a full target (no `--package`), a resolved package is missing from the NuGet
+  global-packages directory.
+- With a full target (no `--package`), an installed skill is stale. Use uninstall with `--stale`
+  first.
 - With `--package`, a named package is installed at a different version. Use uninstall with
   `--package` to remove that package's installed skills first. You can also run
   `install --package <ID>@<VERSION>` without `--interactive` to move the package to its new
@@ -294,8 +306,8 @@ combine.
 
 | Option | Applies to | Description |
 | --- | --- | --- |
-| `-t, --target <PATH>` | install, list | Solution or project to inspect. Defaults to searching the current directory. |
-| `-p, --package <ID[@VERSION]>` | install, list | Select a package instead of a project. A bare ID uses the destination manifest's tracked version; otherwise specify an exact version. Repeatable. Refuses a floating version. |
+| `-t, --target <PATH>` | install, list | Solution or project to inspect, or to resolve bare package IDs that the manifest does not track. Defaults to searching the current directory. |
+| `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID uses the destination manifest first, then `--target` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
 | `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
 | `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
 | `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. |
@@ -503,6 +515,11 @@ directory can still be a link, but an unreadable requested directory produces an
    skills that the new version no longer ships.
 6. The tool records what it copied in `<destination>/.dotnet-package-skills.json`.
 
+With `--package`, the tool first resolves each selector. Explicit versions need neither the
+manifest nor step 1. Bare IDs use a valid manifest entry when one exists. Only remaining bare IDs
+run step 1, against `--target` or an auto-detected target, and only those selected packages
+continue through the later steps.
+
 `uninstall --stale` needs only step 1. It compares the manifest with the target's package
 references, and it never looks in the NuGet global-packages directory for skills.
 
@@ -580,9 +597,17 @@ for the target and try again. This message also appears when your packages come 
 which is common in a container or on a hosted build agent. Point `--global-packages` at that
 folder.
 
-**"is not tracked in the destination manifest"** A bare package ID needs a tracked version.
-Select the destination that contains the package's manifest entry, or specify `ID@VERSION`.
-An untracked package is not resolved from the NuGet global-packages directory.
+**"is not a direct package resolved for target"** The valid destination manifest did not track
+the bare package ID, and the target did not resolve it as a direct package. Check the named
+target, choose another one with `--target`, or specify `ID@VERSION`.
+
+**"target resolution was unavailable"** The valid destination manifest did not track the bare
+package ID, and the tool could not auto-detect a solution or project. Pass one with `--target`,
+or specify `ID@VERSION`.
+
+**"resolves to more than one version in target"** A solution resolves the bare package ID to
+different versions. Narrow `--target` to one project that resolves a single version, or specify
+`ID@VERSION`.
 
 **"resolve to more than one version"** Projects in the target reference different versions of
 one package. Align those versions, for example with Central Package Management, and try again.
@@ -595,7 +620,8 @@ try again.
 **"is already installed, and an interactive install only adds skills"** `install --interactive
 --package` named a package that is installed at a different version. Use `ID@VERSION` with
 install without `--interactive` to move the package to the new version, or use uninstall with
-`--package` first. A bare ID retains the destination manifest's tracked version.
+`--package` first. A bare ID retains the destination manifest's tracked version when one exists;
+otherwise it uses the selected target's resolved version.
 
 **"Could not read the install manifest"** The manifest has a merge conflict, or someone edited it
 into a shape that the tool cannot trust. See

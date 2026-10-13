@@ -1,11 +1,25 @@
 using System.CommandLine;
 using DotnetPackageSkills.Cli;
+using DotnetPackageSkills.Infrastructure;
 using DotnetPackageSkills.Skills;
 
 namespace DotnetPackageSkills.Tests;
 
 public class CommandLineTests
 {
+    private sealed class FakeDotnet(string listPackageJson) : IProcessRunner
+    {
+        public List<string> Invocations { get; } = [];
+
+        public ProcessResult Run(string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null)
+        {
+            Invocations.Add(string.Join(' ', arguments));
+            return arguments.Contains("list")
+                ? new ProcessResult(0, listPackageJson, string.Empty)
+                : throw new InvalidOperationException($"Unexpected invocation: {string.Join(' ', arguments)}");
+        }
+    }
+
     [Theory]
     [InlineData("install", "--package")]
     [InlineData("install", "-p")]
@@ -39,22 +53,46 @@ public class CommandLineTests
     [Theory]
     [InlineData("install")]
     [InlineData("list")]
-    public void Bare_untracked_ids_require_an_explicit_version_without_searching_package_directories(string command)
+    public void Package_and_target_can_be_combined_for_bare_id_resolution(string command)
+    {
+        Assert.Empty(CommandLineBuilder.Build().Parse(
+            [command, "-p", "Mockly", "-t", "src/App.csproj"]).Errors);
+        Assert.Empty(CommandLineBuilder.Build().Parse(
+            [command, "--package", "Mockly@1.0.0", "--target", "missing.sln"]).Errors);
+    }
+
+    [Theory]
+    [InlineData("install")]
+    [InlineData("list")]
+    public void Package_and_target_flow_through_the_command_action(string command)
     {
         using var temp = new TempDirectory();
-        temp.CreatePackageWithSkill("Mockly", "1.0.0", "first");
-        temp.CreatePackageWithSkill("Mockly", "2.0.0", "second");
-        var destination = temp.Combine("untracked-skills");
+        var target = temp.CreateFile("src/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        var destination = temp.Combine("skills");
+        var runner = new FakeDotnet(
+            """{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Mockly","resolvedVersion":"1.10.0"}]}]}]}""");
         using var output = new StringWriter();
         using var error = new StringWriter();
 
         var exitCode = CommandLineBuilder.Invoke(
-            [command, "-p", "Mockly", "-d", destination, "--global-packages", temp.Combine("packages")],
-            output, error);
+            [
+                command,
+                "-p", "Mockly",
+                "-t", target,
+                "-d", destination,
+                "--global-packages", temp.Combine("packages"),
+            ],
+            runner,
+            output,
+            error);
 
-        Assert.Equal(1, exitCode);
-        Assert.Empty(output.ToString());
-        Assert.False(Directory.Exists(destination));
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error.ToString());
+        Assert.Equal(command == "install", File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+        var invocation = Assert.Single(runner.Invocations);
+        Assert.StartsWith("list ", invocation);
+        Assert.Contains(target, invocation);
     }
 
     [Theory]
@@ -70,6 +108,8 @@ public class CommandLineTests
         Assert.Empty(error.ToString());
         Assert.Contains("ID[@VERSION]", output.ToString());
         Assert.Contains("manifest", output.ToString());
+        Assert.Contains("--target", output.ToString());
+        Assert.Contains("auto-detected target", output.ToString());
         Assert.Contains("NuGet global-packages directory", output.ToString());
         Assert.DoesNotContain("global packages folder", output.ToString());
     }

@@ -68,19 +68,24 @@ public class SkillInstallServiceTests
     [InlineData("install")]
     [InlineData("dry-run")]
     [InlineData("interactive")]
-    public void Bare_ids_resolve_only_the_manifest_version_in_every_install_or_list_mode(string mode)
+    public void Bare_ids_prefer_the_manifest_without_reading_a_supplied_target(string mode)
     {
         using var temp = new TempDirectory();
         var package = temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
         temp.CreatePackageWithSkill("Mockly", "9.0.0", "wrong-version");
-        var runner = new FakeDotnet(temp.Combine("packages"), Json());
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "9.0.0")));
         var service = new SkillInstallService(runner);
         var request = Request(temp) with { Destination = ".claude/skills" };
         service.Install(request with { Packages = [PackageCoordinate.Parse("Mockly@1.10")] });
         var manifestPath = temp.Combine(".claude", "skills", InstallManifest.FileName);
         var before = File.ReadAllBytes(manifestPath);
         File.WriteAllText(Path.Combine(package, "skills", "usage", "SKILL.md"), "refreshed guidance");
-        request = request with { Packages = [PackageCoordinate.Parse("mOcKlY")], DryRun = mode == "dry-run" };
+        request = request with
+        {
+            Target = "missing.sln",
+            Packages = [PackageCoordinate.Parse("mOcKlY")],
+            DryRun = mode == "dry-run",
+        };
 
         var discovered = service.Discover(request);
         var result = mode switch
@@ -101,42 +106,256 @@ public class SkillInstallServiceTests
     }
 
     [Theory]
+    [InlineData("list")]
+    [InlineData("install")]
+    public void Untracked_bare_ids_resolve_from_an_explicit_target_for_list_and_install(string mode)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0")));
+        var service = new SkillInstallService(runner);
+        var request = Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("mOcKlY")],
+        };
+
+        var discovered = service.Discover(request);
+        var result = mode == "install"
+            ? service.Install(request, discovered, choice: null)
+            : discovered;
+
+        Assert.Equal(new PackageReferenceInfo("mOcKlY", "1.10.0"), Assert.Single(discovered.ResolvedPackages));
+        Assert.Equal("usage", Assert.Single(result.Skills).SkillName);
+        Assert.Equal(mode == "install", File.Exists(temp.Combine(".agents", "skills", "usage", "SKILL.md")));
+        var listCall = Assert.Single(runner.Invocations);
+        Assert.Contains(target, listCall);
+        Assert.StartsWith("list ", listCall);
+    }
+
+    [Fact]
+    public void Untracked_bare_ids_auto_discover_a_target()
+    {
+        using var temp = new TempDirectory();
+        temp.CreateFile("MyApp.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0")));
+        var service = new SkillInstallService(runner);
+
+        var result = service.Discover(
+            Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly")] });
+
+        Assert.Equal("1.10.0", Assert.Single(result.ResolvedPackages).Version);
+        Assert.Equal("usage", Assert.Single(result.Skills).SkillName);
+        Assert.Matches(@"^list .*MyApp\.sln package ", Assert.Single(runner.Invocations));
+    }
+
+    [Fact]
+    public void Bare_ids_without_a_discoverable_target_explain_both_resolution_options()
+    {
+        using var temp = new TempDirectory();
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0")));
+        var service = new SkillInstallService(runner);
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+            service.Discover(Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly")] }));
+
+        Assert.Contains("target resolution was unavailable", error.Message);
+        Assert.Contains("Mockly", error.Message);
+        Assert.Contains("--target", error.Message);
+        Assert.Contains("ID@VERSION", error.Message);
+        Assert.Empty(runner.Invocations);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+    }
+
+    [Fact]
+    public void Multiple_unresolved_bare_ids_share_one_target_listing()
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
+        temp.CreatePackageWithSkill("Alpha", "1.0.0", "alpha");
+        temp.CreatePackageWithSkill("Beta", "2.0.0", "beta");
+        var runner = new FakeDotnet(
+            temp.Combine("packages"),
+            Json(("Alpha", "1.0.0"), ("Beta", "2.0.0")));
+        var service = new SkillInstallService(runner);
+
+        var result = service.Discover(Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("Alpha"), PackageCoordinate.Parse("Beta")],
+        });
+
+        Assert.Equal(["alpha", "beta"], result.Skills.Select(skill => skill.SkillName));
+        Assert.Single(runner.Invocations);
+    }
+
+    [Fact]
+    public void Repeated_target_matches_at_one_normalized_version_are_unambiguous()
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        const string json = """
+            {
+              "projects": [
+                {
+                  "path": "/repo/src/Api/Api.csproj",
+                  "frameworks": [
+                    { "topLevelPackages": [ { "id": "Mockly", "resolvedVersion": "1.10" } ] }
+                  ]
+                },
+                {
+                  "path": "/repo/src/Worker/Worker.csproj",
+                  "frameworks": [
+                    { "topLevelPackages": [ { "id": "mockly", "resolvedVersion": "01.10.0.0+Build" } ] }
+                  ]
+                }
+              ]
+            }
+            """;
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), json));
+
+        var result = service.Discover(Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("MOCKLY")],
+        });
+
+        Assert.Equal("1.10.0",
+            PackagePathResolver.NormalizeVersion(Assert.Single(result.ResolvedPackages).Version));
+        Assert.Equal("usage", Assert.Single(result.Skills).SkillName);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Bare_ids_do_not_borrow_a_version_from_an_explicit_selector_when_untracked(bool bareFirst)
+    public void Bare_ids_resolve_from_the_target_instead_of_borrowing_an_explicit_selector(bool bareFirst)
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
-        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
+        temp.CreatePackageWithSkill("Mockly", "2.0.0", "other-version");
+        var target = temp.CreateFile("App.sln");
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "2.0.0")));
+        var service = new SkillInstallService(runner);
         var request = Request(temp) with
         {
+            Target = target,
             Packages = bareFirst
                 ? [PackageCoordinate.Parse("Mockly"), PackageCoordinate.Parse("Mockly@1.0.0")]
                 : [PackageCoordinate.Parse("Mockly@1.0.0"), PackageCoordinate.Parse("Mockly")],
         };
 
-        var error = Assert.Throws<PackageSkillsException>(() => service.Discover(request));
+        var discovered = service.Discover(request);
+        var error = Assert.Throws<PackageSkillsException>(() => service.Install(request, discovered, choice: null));
 
-        Assert.Contains("not tracked", error.Message);
-        Assert.Contains("ID@VERSION", error.Message);
+        Assert.Equal(["1.0.0", "2.0.0"],
+            discovered.ResolvedPackages.Select(package => package.Version).OrderBy(version => version));
+        Assert.Contains("one version per package", error.Message);
+        Assert.Single(runner.Invocations);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
     }
 
     [Fact]
-    public void Untracked_bare_ids_fail_before_locating_the_global_packages_directory()
+    public void Bare_ids_not_found_in_the_target_fail_with_the_target_and_exact_version_guidance()
     {
         using var temp = new TempDirectory();
-        var runner = new FakeDotnet(temp.Combine("packages"), Json());
+        var target = temp.CreateFile("App.sln");
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Other", "1.0.0")));
         var service = new SkillInstallService(runner);
-        var request = Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly")] };
+        var request = Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("Mockly")],
+        };
 
         var error = Assert.Throws<PackageSkillsException>(() => service.Discover(request));
 
-        Assert.Contains("not tracked", error.Message);
+        Assert.Contains("Mockly", error.Message);
+        Assert.Contains(target, error.Message);
+        Assert.Contains("not a direct package", error.Message);
         Assert.Contains("ID@VERSION", error.Message);
-        Assert.Contains(InstallManifest.FileName, error.Message);
-        Assert.Contains("NuGet global-packages directory", error.Message);
-        Assert.Empty(runner.Invocations);
+        Assert.Single(runner.Invocations);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+    }
+
+    [Theory]
+    [InlineData("list")]
+    [InlineData("install")]
+    public void Multiple_target_versions_for_a_bare_id_fail_for_list_and_install(string mode)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
+        const string json = """
+            {
+              "projects": [
+                {
+                  "path": "/repo/src/Api/Api.csproj",
+                  "frameworks": [
+                    { "topLevelPackages": [ { "id": "Mockly", "resolvedVersion": "1.10.0" } ] }
+                  ]
+                },
+                {
+                  "path": "/repo/src/Worker/Worker.csproj",
+                  "frameworks": [
+                    { "topLevelPackages": [ { "id": "mockly", "resolvedVersion": "1.11.0" } ] }
+                  ]
+                }
+              ]
+            }
+            """;
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), json));
+        var request = Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("Mockly")],
+        };
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+        {
+            if (mode == "install")
+            {
+                service.Install(request);
+            }
+            else
+            {
+                service.Discover(request);
+            }
+        });
+
+        Assert.Contains(target, error.Message);
+        Assert.Contains("1.10.0", error.Message);
+        Assert.Contains("1.11.0", error.Message);
+        Assert.Contains("Narrow --target", error.Message);
+        Assert.Contains("ID@VERSION", error.Message);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+    }
+
+    [Theory]
+    [InlineData("dry-run")]
+    [InlineData("interactive")]
+    public void Target_resolved_bare_ids_prepare_without_writing_in_preview_modes(string mode)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        var service = new SkillInstallService(
+            new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0"))));
+        var request = Request(temp) with
+        {
+            Target = target,
+            Packages = [PackageCoordinate.Parse("Mockly")],
+            DryRun = mode == "dry-run",
+        };
+        var discovered = service.Discover(request);
+
+        var result = mode == "interactive"
+            ? service.PrepareInteractiveInstall(request, discovered, [])
+            : service.Install(request, discovered, choice: null);
+
+        Assert.Equal("usage", Assert.Single(result.Skills).SkillName);
+        Assert.Equal(mode == "dry-run", result.DryRun);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
     }
 
@@ -164,26 +383,54 @@ public class SkillInstallServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Bare_and_explicit_selectors_deduplicate_after_case_insensitive_manifest_resolution(bool explicitFirst)
+    public void Explicit_manifest_and_target_resolved_selectors_deduplicate_after_normalization(bool explicitFirst)
     {
         using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
         temp.CreatePackageWithSkill("Mockly", "1.10.0-beta.1", "usage");
-        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
-        service.Install(Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly@1.10.0-beta.1")] });
+        temp.CreatePackageWithSkill("Mockly", "9.0.0", "wrong-version");
+        temp.CreatePackageWithSkill("Alpha", "1.0.0", "alpha");
+        temp.CreatePackageWithSkill("TargetOnly", "2.0.0", "target-only");
+        var runner = new FakeDotnet(
+            temp.Combine("packages"),
+            Json(("Mockly", "9.0.0"), ("TargetOnly", "02.0.0.0+Target")));
+        var service = new SkillInstallService(runner);
+        service.Install(Request(temp) with
+        {
+            Packages = [PackageCoordinate.Parse("Mockly@1.10.0-beta.1")],
+        });
         var request = Request(temp) with
         {
+            Target = target,
             Packages = explicitFirst
-                ? [PackageCoordinate.Parse("mockly@01.10-BETA.1+Build"), PackageCoordinate.Parse("MOCKLY"), PackageCoordinate.Parse("mockly")]
-                : [PackageCoordinate.Parse("MOCKLY"), PackageCoordinate.Parse("mockly"), PackageCoordinate.Parse("mockly@01.10-BETA.1+Build")],
+                ?
+                [
+                    PackageCoordinate.Parse("alpha@1.0+Explicit"),
+                    PackageCoordinate.Parse("MOCKLY"),
+                    PackageCoordinate.Parse("TargetOnly"),
+                    PackageCoordinate.Parse("targetonly@2.0.0+Explicit"),
+                    PackageCoordinate.Parse("ALPHA@01.0.0.0"),
+                ]
+                :
+                [
+                    PackageCoordinate.Parse("MOCKLY"),
+                    PackageCoordinate.Parse("TargetOnly"),
+                    PackageCoordinate.Parse("targetonly@2.0.0+Explicit"),
+                    PackageCoordinate.Parse("ALPHA@01.0.0.0"),
+                    PackageCoordinate.Parse("alpha@1.0+Explicit"),
+                ],
         };
 
         var discovered = service.Discover(request);
         var result = service.Install(request, discovered, choice: null);
 
-        Assert.Equal(1, discovered.PackagesScanned);
-        Assert.Single(result.Skills);
+        Assert.Equal(3, discovered.PackagesScanned);
+        Assert.Equal(["alpha", "target-only", "usage"],
+            result.Skills.Select(skill => skill.SkillName).OrderBy(name => name));
         Assert.Empty(result.Skipped);
         Assert.Empty(result.Removed);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills", "wrong-version")));
+        Assert.Single(runner.Invocations);
     }
 
     [Fact]
@@ -226,15 +473,22 @@ public class SkillInstallServiceTests
     public void Bare_ids_require_a_valid_manifest_without_overwriting_it()
     {
         using var temp = new TempDirectory();
+        var target = temp.CreateFile("App.sln");
         temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
         var manifest = temp.CreateFile($".agents/skills/{InstallManifest.FileName}", "{ invalid json");
-        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.0.0")));
+        var service = new SkillInstallService(runner);
 
         var error = Assert.Throws<PackageSkillsException>(() =>
-            service.Discover(Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly")] }));
+            service.Discover(Request(temp) with
+            {
+                Target = target,
+                Packages = [PackageCoordinate.Parse("Mockly")],
+            }));
 
         Assert.Contains("Could not read the install manifest", error.Message);
         Assert.Equal("{ invalid json", File.ReadAllText(manifest));
+        Assert.Empty(runner.Invocations);
     }
 
     [Theory]
@@ -974,10 +1228,14 @@ public class SkillInstallServiceTests
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
 
-        // No solution or project exists in the temp directory at all.
+        // The supplied target does not exist. An exact selector does not need it.
         var runner = new FakeDotnet(temp.Combine("packages"), Json());
         var result = new SkillInstallService(runner).Install(
-            Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly@1.10.0")] });
+            Request(temp) with
+            {
+                Target = "missing.sln",
+                Packages = [PackageCoordinate.Parse("Mockly@1.10.0")],
+            });
 
         Assert.Null(result.Target);
         Assert.Equal("mockly", Assert.Single(result.Skills).RelativePath);
