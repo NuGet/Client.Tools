@@ -286,7 +286,43 @@ public class SkillInstallerTests
     }
 
     [Fact]
-    public void Install_skips_an_existing_untracked_destination_folder()
+    public void Install_reuses_an_existing_empty_untracked_destination_folder()
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        temp.CreateDirectory("dest", "mockly");
+
+        var outcome = _installer.Install(
+            destination,
+            [Skill(temp, "Mockly", "1.10.0", "mockly")],
+            dryRun: false);
+
+        Assert.Single(outcome.Installed);
+        Assert.Empty(outcome.Skipped);
+        Assert.True(File.Exists(Path.Combine(destination, "mockly", "SKILL.md")));
+        Assert.True(File.Exists(Path.Combine(destination, InstallManifest.FileName)));
+    }
+
+    [Fact]
+    public void Dry_run_accepts_an_empty_untracked_destination_folder_without_mutating_it()
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var existing = temp.CreateDirectory("dest", "mockly");
+
+        var outcome = _installer.Install(
+            destination,
+            [Skill(temp, "Mockly", "1.10.0", "mockly")],
+            dryRun: true);
+
+        Assert.Single(outcome.Installed);
+        Assert.Empty(outcome.Skipped);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(existing));
+        Assert.False(File.Exists(Path.Combine(destination, InstallManifest.FileName)));
+    }
+
+    [Fact]
+    public void Install_skips_an_existing_nonempty_untracked_destination_folder()
     {
         using var temp = new TempDirectory();
         var destination = temp.CreateDirectory("dest");
@@ -300,6 +336,50 @@ public class SkillInstallerTests
         Assert.Empty(outcome.Installed);
         Assert.Single(outcome.Skipped);
         Assert.Equal("ours", File.ReadAllText(existing));
+    }
+
+    [Fact]
+    public void Install_skips_an_untracked_destination_folder_containing_an_empty_directory()
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var existing = temp.CreateDirectory("dest", "mockly", "references");
+
+        var outcome = _installer.Install(
+            destination,
+            [Skill(temp, "Mockly", "1.10.0", "mockly")],
+            dryRun: false);
+
+        Assert.Empty(outcome.Installed);
+        Assert.Single(outcome.Skipped);
+        Assert.True(Directory.Exists(existing));
+        Assert.False(File.Exists(Path.Combine(destination, InstallManifest.FileName)));
+    }
+
+    [SymbolicLinkTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Install_keeps_an_empty_linked_destination_as_an_unmanaged_collision(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("dest");
+        var target = temp.CreateDirectory("outside", "mockly");
+        var link = temp.Combine("dest", "mockly");
+        Directory.CreateSymbolicLink(link, target);
+        try
+        {
+            var outcome = _installer.Install(
+                destination,
+                [Skill(temp, "Mockly", "1.10.0", "mockly")],
+                dryRun);
+
+            Assert.Empty(outcome.Installed);
+            Assert.Single(outcome.Skipped);
+            Assert.Equal(target, new DirectoryInfo(link).LinkTarget);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+            Assert.False(File.Exists(Path.Combine(destination, InstallManifest.FileName)));
+        }
+        finally { Directory.Delete(link); }
     }
 
     [Fact]

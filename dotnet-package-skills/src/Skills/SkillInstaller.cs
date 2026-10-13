@@ -57,6 +57,7 @@ public sealed class SkillInstaller
         var accepted = new List<BundledSkill>();
         var skipped = new List<SkippedSkill>(duplicateSkips);
         var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reusableDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var skill in selected)
         {
@@ -75,12 +76,19 @@ public sealed class SkillInstaller
                 continue;
             }
 
-            if (tracked is null && Directory.Exists(destination))
+            var destinationDirectory = new DirectoryInfo(destination);
+            if (tracked is null &&
+                (destinationDirectory.Exists || destinationDirectory.LinkTarget is not null))
             {
-                skipped.Add(ToSkipped(
-                    skill,
-                    "the destination folder already exists and is not managed by this tool"));
-                continue;
+                if (!IsReusableEmptyDirectory(destinationDirectory))
+                {
+                    skipped.Add(ToSkipped(
+                        skill,
+                        "the destination folder already exists and is not managed by this tool"));
+                    continue;
+                }
+
+                reusableDestinations.Add(skill.RelativePath);
             }
 
             if (tracked is not null && !HasSameOwner(tracked, skill))
@@ -164,7 +172,10 @@ public sealed class SkillInstaller
 
         foreach (var skill in accepted)
         {
-            CopyDirectory(skill.SourcePath, ToAbsolute(destinationRoot, skill.RelativePath));
+            CopyDirectory(
+                skill.SourcePath,
+                ToAbsolute(destinationRoot, skill.RelativePath),
+                reusableDestinations.Contains(skill.RelativePath));
         }
 
         if (manifest.IsEmpty)
@@ -368,9 +379,24 @@ public sealed class SkillInstaller
     /// restore and shared by every project on the machine. Moving files out can make restore treat a
     /// package as corrupt and strips the skill from every other repository using it.
     /// </remarks>
-    private static void CopyDirectory(string source, string destination)
+    private static void CopyDirectory(string source, string destination, bool reuseExistingEmptyDirectory)
     {
-        if (Directory.Exists(destination))
+        if (reuseExistingEmptyDirectory)
+        {
+            var directory = new DirectoryInfo(destination);
+            if (File.Exists(destination) || directory.Exists || directory.LinkTarget is not null)
+            {
+                if (!IsReusableEmptyDirectory(directory))
+                {
+                    throw new IOException(
+                        $"The destination folder '{destination}' is no longer an empty ordinary directory.");
+                }
+
+                // This path was not managed by the tool, so never remove it recursively.
+                Directory.Delete(destination, recursive: false);
+            }
+        }
+        else if (Directory.Exists(destination))
         {
             // Delete first so files removed in a newer package version do not survive.
             Directory.Delete(destination, recursive: true);
@@ -394,6 +420,12 @@ public sealed class SkillInstaller
             ClearReadOnly(target);
         }
     }
+
+    private static bool IsReusableEmptyDirectory(DirectoryInfo directory) =>
+        directory.LinkTarget is null &&
+        directory.Exists &&
+        (directory.Attributes & FileAttributes.ReparsePoint) == 0 &&
+        !directory.EnumerateFileSystemInfos().Any();
 
     private static void ClearReadOnly(string path)
     {

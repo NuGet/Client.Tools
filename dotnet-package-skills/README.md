@@ -411,8 +411,10 @@ safe name still works.
 
 The tool compares destination names without regard to letter case. When two package skills
 choose the same name, the tool copies the first one in a fixed package order. It skips a later
-collision and shows a warning. An existing destination folder that this tool does not track
-belongs to the user. The tool skips that folder too, and never overwrites it.
+collision and shows a warning. An existing nonempty destination folder that this tool does not
+track belongs to the user. The tool skips that folder too, and never overwrites it. It can reuse
+an ordinary empty folder. Symbolic links, junctions, and other reparse points remain protected as
+collisions even when their targets are empty.
 
 The same protection applies to a name that a different package already owns. Every install mode
 warns about this and keeps the current owner. It does not transfer the name automatically.
@@ -510,9 +512,10 @@ directory can still be a link, but an unreadable requested directory produces an
 3. `install` stops without changing anything when a package resolves to more than one version, or
    when a package that the target resolves is missing from the NuGet global-packages directory.
 4. For each package, the tool looks in `<global-packages>/<id>/<version>/skills/`.
-5. The tool copies each `skills/<name>/` folder to `<destination>/<name>/`. It skips a collision
-   and shows a warning instead. For a package that moved to a new version, the tool removes the
-   skills that the new version no longer ships.
+5. The tool copies each `skills/<name>/` folder to `<destination>/<name>/`. It can reuse an
+   ordinary empty destination folder, but skips nonempty or linked unmanaged collisions and shows
+   a warning instead. For a package that moved to a new version, the tool removes the skills that
+   the new version no longer ships.
 6. The tool records what it copied in `<destination>/.dotnet-package-skills.json`.
 
 With `--package`, the tool first resolves each selector. Explicit versions need neither the
