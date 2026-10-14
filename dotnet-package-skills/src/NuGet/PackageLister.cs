@@ -112,14 +112,9 @@ public sealed class PackageLister(DotnetCli dotnet)
 
             foreach (var framework in project.Frameworks)
             {
-                if (framework.TopLevelPackages is null)
-                {
-                    throw IncompleteGraph(
-                        project.Path,
-                        $"framework '{framework.Framework ?? "(unknown)"}' did not include a top-level packages array");
-                }
-
-                foreach (var entry in framework.TopLevelPackages)
+                // SDK 10 omits topLevelPackages for a successfully restored framework with no
+                // package references. A missing frameworks property above remains incomplete.
+                foreach (var entry in framework.TopLevelPackages ?? [])
                 {
                     var id = entry.Id?.Trim();
 

@@ -228,25 +228,20 @@ public class PackageListerTests
     }
 
     [Fact]
-    public void Parse_rejects_a_framework_with_no_top_level_packages_array()
+    public void Parse_handles_a_restored_framework_with_no_top_level_packages_property()
     {
         const string json = """
             {
               "projects": [
                 {
                   "path": "/repo/src/Api/Api.csproj",
-                  "frameworks": [ { "framework": "net8.0" } ]
+                  "frameworks": [ { "framework": "net10.0" } ]
                 }
               ]
             }
             """;
 
-        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
-
-        Assert.Contains("/repo/src/Api/Api.csproj", error.Message);
-        Assert.Contains("net8.0", error.Message);
-        Assert.Contains("top-level packages", error.Message);
-        Assert.Contains("Restore or fix", error.Message);
+        Assert.Empty(PackageLister.Parse(json));
     }
 
     [Fact]

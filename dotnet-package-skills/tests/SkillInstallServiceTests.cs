@@ -59,6 +59,19 @@ public class SkillInstallServiceTests
     private static string IncompleteJson(string projectPath) =>
         $$"""{"version":1,"projects":[{"path":"{{projectPath.Replace("\\", "\\\\")}}"}]}""";
 
+    private static string EmptyRestoredJson(string projectPath) =>
+        $$"""
+          {
+            "version": 1,
+            "projects": [
+              {
+                "path": "{{projectPath.Replace("\\", "\\\\")}}",
+                "frameworks": [ { "framework": "net10.0" } ]
+              }
+            ]
+          }
+          """;
+
     private static InstallRequest Request(TempDirectory temp) => new()
     {
         Destination = ".agents/skills",
@@ -1694,6 +1707,41 @@ public class SkillInstallServiceTests
         Assert.Contains("incomplete package graph", error.Message);
         Assert.Contains("Restore or fix", error.Message);
         Assert.Equal(before, Snapshot(destination));
+    }
+
+    [Fact]
+    public void A_restored_package_free_target_reports_no_skills_and_allows_stale_uninstall()
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/MyApp.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
+        new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()))
+            .Install(Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly@1.10.0")] });
+        var destination = temp.Combine(".agents", "skills");
+        var before = Snapshot(destination);
+        var runner = new FakeDotnet(temp.Combine("packages"), EmptyRestoredJson(target));
+        var service = new SkillInstallService(runner);
+        var request = Request(temp) with { Target = target };
+
+        var result = service.Install(request);
+
+        Assert.Empty(result.Skills);
+        Assert.Empty(result.Removed);
+        Assert.Equal(new TrackedSkill("mockly", "1.10.0", "mockly"), Assert.Single(result.Unreferenced));
+        Assert.Equal(before, Snapshot(destination));
+        using var output = new StringWriter();
+        new OutputWriter(output).WriteInstallReport(result, copied: true);
+        Assert.Contains("No bundled skills found.", output.ToString());
+        Assert.Contains("Use uninstall with --stale", output.ToString());
+
+        var references = service.ReadReferences(target, temp.Path);
+        Assert.Empty(references.Packages);
+        var removed = service.Uninstall(
+            ".agents/skills", temp.Path, null, null, dryRun: false, staleAgainst: references.Packages);
+
+        Assert.Equal(new TrackedSkill("mockly", "1.10.0", "mockly"), Assert.Single(removed));
+        Assert.False(Directory.Exists(destination));
+        Assert.Equal(2, runner.Invocations.Count(line => line.StartsWith("list ", StringComparison.Ordinal)));
     }
 
     [Fact]
