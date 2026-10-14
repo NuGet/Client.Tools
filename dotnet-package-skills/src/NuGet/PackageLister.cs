@@ -101,31 +101,48 @@ public sealed class PackageLister(DotnetCli dotnet)
         // Keeping all versions also lets skill discovery report name collisions.
         var found = new Dictionary<(string Id, string Version), PackageReferenceInfo>();
 
-        foreach (var framework in report.Projects?.SelectMany(p => p.Frameworks ?? []) ?? [])
+        foreach (var project in report.Projects ?? [])
         {
-            foreach (var entry in framework.TopLevelPackages ?? [])
+            if (project.Frameworks is null)
             {
-                var id = entry.Id?.Trim();
+                throw IncompleteGraph(
+                    project.Path,
+                    "the project entry did not include a frameworks array");
+            }
 
-                // The resolved version is what exists on disk: it is the concrete value behind a
-                // floating version or a version managed through Central Package Management.
-                var version = Coalesce(entry.ResolvedVersion, entry.RequestedVersion);
-
-                if (string.IsNullOrEmpty(id))
+            foreach (var framework in project.Frameworks)
+            {
+                if (framework.TopLevelPackages is null)
                 {
-                    continue;
+                    throw IncompleteGraph(
+                        project.Path,
+                        $"framework '{framework.Framework ?? "(unknown)"}' did not include a top-level packages array");
                 }
 
-                PackageCoordinate.ValidateId(id);
-                if (version is null || !NuGetVersion.TryParse(version, out _))
+                foreach (var entry in framework.TopLevelPackages)
                 {
-                    throw new PackageSkillsException(
-                        $"'dotnet list package' reported an invalid exact version '{version}' for package '{id}'. " +
-                        "Restore or fix the target's package references, then try again.");
-                }
+                    var id = entry.Id?.Trim();
 
-                var key = (id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(version));
-                found[key] = new PackageReferenceInfo(id, version);
+                    // The resolved version is what exists on disk: it is the concrete value behind a
+                    // floating version or a version managed through Central Package Management.
+                    var version = Coalesce(entry.ResolvedVersion, entry.RequestedVersion);
+
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        continue;
+                    }
+
+                    PackageCoordinate.ValidateId(id);
+                    if (version is null || !NuGetVersion.TryParse(version, out _))
+                    {
+                        throw new PackageSkillsException(
+                            $"'dotnet list package' reported an invalid exact version '{version}' for package '{id}'. " +
+                            "Restore or fix the target's package references, then try again.");
+                    }
+
+                    var key = (id.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(version));
+                    found[key] = new PackageReferenceInfo(id, version);
+                }
             }
         }
 
@@ -133,6 +150,16 @@ public sealed class PackageLister(DotnetCli dotnet)
 
         static string? Coalesce(string? first, string? second) =>
             string.IsNullOrWhiteSpace(first) ? second?.Trim() : first.Trim();
+    }
+
+    private static PackageSkillsException IncompleteGraph(string? projectPath, string detail)
+    {
+        var project = string.IsNullOrWhiteSpace(projectPath)
+            ? "an unknown project"
+            : $"project '{projectPath}'";
+        return new PackageSkillsException(
+            $"'dotnet list package' returned an incomplete package graph for {project}: {detail}. " +
+            "Restore or fix the target, then try again. No skills were changed.");
     }
 
     private static ListPackageReport Deserialize(string json)

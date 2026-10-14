@@ -56,6 +56,9 @@ public class SkillInstallServiceTests
             """;
     }
 
+    private static string IncompleteJson(string projectPath) =>
+        $$"""{"version":1,"projects":[{"path":"{{projectPath.Replace("\\", "\\\\")}}"}]}""";
+
     private static InstallRequest Request(TempDirectory temp) => new()
     {
         Destination = ".agents/skills",
@@ -1609,6 +1612,41 @@ public class SkillInstallServiceTests
 
         Assert.Empty(removed);
         Assert.True(File.Exists(temp.Combine(".agents", "skills", "mockly", "SKILL.md")));
+    }
+
+    [Theory]
+    [InlineData("list")]
+    [InlineData("install")]
+    public void Target_flows_reject_an_incomplete_package_graph_before_changing_existing_skills(string mode)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/MyApp.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
+        new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0"))))
+            .Install(Request(temp) with { Target = target });
+        var destination = temp.Combine(".agents", "skills");
+        var before = Snapshot(destination);
+        var service = new SkillInstallService(new FakeDotnet(
+            temp.Combine("packages"),
+            IncompleteJson(target)));
+        var request = Request(temp) with { Target = target };
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+        {
+            if (mode == "install")
+            {
+                service.Install(request);
+            }
+            else
+            {
+                service.Discover(request);
+            }
+        });
+
+        Assert.Contains(target, error.Message);
+        Assert.Contains("incomplete package graph", error.Message);
+        Assert.Contains("Restore or fix", error.Message);
+        Assert.Equal(before, Snapshot(destination));
     }
 
     [Fact]

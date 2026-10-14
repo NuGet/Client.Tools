@@ -214,11 +214,67 @@ public class PackageListerTests
     }
 
     [Fact]
-    public void Parse_handles_an_unrestored_project_with_no_frameworks_array()
+    public void Parse_rejects_an_unrestored_project_with_no_frameworks_array()
     {
         const string json = """{ "version": 1, "projects": [ { "path": "/repo/src/Api/Api.csproj" } ] }""";
 
-        Assert.Empty(PackageLister.Parse(json));
+        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+
+        Assert.Contains("/repo/src/Api/Api.csproj", error.Message);
+        Assert.Contains("incomplete package graph", error.Message);
+        Assert.Contains("frameworks", error.Message);
+        Assert.Contains("Restore or fix", error.Message);
+        Assert.Contains("No skills were changed", error.Message);
+    }
+
+    [Fact]
+    public void Parse_rejects_a_framework_with_no_top_level_packages_array()
+    {
+        const string json = """
+            {
+              "projects": [
+                {
+                  "path": "/repo/src/Api/Api.csproj",
+                  "frameworks": [ { "framework": "net8.0" } ]
+                }
+              ]
+            }
+            """;
+
+        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+
+        Assert.Contains("/repo/src/Api/Api.csproj", error.Message);
+        Assert.Contains("net8.0", error.Message);
+        Assert.Contains("top-level packages", error.Message);
+        Assert.Contains("Restore or fix", error.Message);
+    }
+
+    [Fact]
+    public void Parse_rejects_a_mixed_complete_and_incomplete_solution()
+    {
+        const string json = """
+            {
+              "projects": [
+                {
+                  "path": "/repo/src/Complete/Complete.csproj",
+                  "frameworks": [
+                    {
+                      "framework": "net8.0",
+                      "topLevelPackages": [
+                        { "id": "Mockly", "resolvedVersion": "1.10.0" }
+                      ]
+                    }
+                  ]
+                },
+                { "path": "/repo/src/Incomplete/Incomplete.csproj" }
+              ]
+            }
+            """;
+
+        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+
+        Assert.Contains("/repo/src/Incomplete/Incomplete.csproj", error.Message);
+        Assert.DoesNotContain("/repo/src/Complete/Complete.csproj", error.Message);
     }
 
     [Fact]
