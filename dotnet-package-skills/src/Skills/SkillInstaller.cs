@@ -105,15 +105,28 @@ public sealed class SkillInstaller
             accepted.Add(skill);
         }
 
+        var crossVersionProtected = trackedSkills
+            .Where(entry => protectedPaths.Contains(entry.Skill))
+            .Where(entry => versions.TryGetValue(entry.Package, out var version) && !SameVersion(version, entry.Version))
+            .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
+            .ToList();
+
+        var blockedReplacements = crossVersionProtected
+            .Where(entry => skills.Any(skill => HasSameOwner(entry, skill)))
+            .Where(entry => !accepted.Any(skill => HasSameOwner(entry, skill)))
+            .ToList();
+
+        if (blockedReplacements.Count > 0)
+        {
+            throw CannotReplaceTrackedSkills(blockedReplacements, versions);
+        }
+
         // A package moving to a version without one of its skills normally loses that skill.
         // When another package in this run ships a skill of the same name, removing it would
         // hand the name to that package, which takes an explicit uninstall. Keeping it would
         // record the old version's copy under the new version, where no later run removes it.
-        var stranded = trackedSkills
-            .Where(entry => protectedPaths.Contains(entry.Skill))
-            .Where(entry => versions.TryGetValue(entry.Package, out var version) && !SameVersion(version, entry.Version))
-            .Where(entry => !skills.Any(skill => HasSameOwner(entry, skill)))
-            .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
+        var stranded = crossVersionProtected
+            .Where(entry => !accepted.Any(skill => HasSameOwner(entry, skill)))
             .ToList();
 
         if (stranded.Count > 0)
@@ -197,6 +210,22 @@ public sealed class SkillInstaller
 
     internal static bool SameVersion(string left, string right) =>
         VersionComparer.VersionRelease.Equals(PackageCoordinate.ParseVersion(left), PackageCoordinate.ParseVersion(right));
+
+    private static PackageSkillsException CannotReplaceTrackedSkills(
+        IReadOnlyList<TrackedSkill> blocked,
+        IReadOnlyDictionary<string, string> versions)
+    {
+        string OwnerId(TrackedSkill entry) =>
+            versions.Keys.First(id => id.Equals(entry.Package, StringComparison.OrdinalIgnoreCase));
+
+        var reasons = blocked.Select(entry =>
+            $"{OwnerId(entry)} {versions[entry.Package]} cannot replace installed skill '{entry.Skill}' " +
+            "because its destination path is a file");
+        return new PackageSkillsException(
+            $"Cannot install skills because {string.Join("; ", reasons)}. " +
+            "Remove or rename each blocking file, or use uninstall with --package to remove the package's " +
+            "installed skills, then try again. No skills were changed.");
+    }
 
     private static PackageSkillsException NameWouldChangeOwner(
         IReadOnlyList<TrackedSkill> stranded,

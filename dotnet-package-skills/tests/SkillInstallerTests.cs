@@ -399,6 +399,59 @@ public class SkillInstallerTests
         Assert.Equal("ours", File.ReadAllText(existing));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_blocking_file_stops_a_cross_version_replacement_before_any_change(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.Combine("dest");
+        _installer.Install(destination, [Skill(temp, "Mockly", "1.0.0", "usage")], dryRun: false);
+        Directory.Delete(Path.Combine(destination, "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+        var before = Snapshot(destination);
+
+        var error = Assert.Throws<PackageSkillsException>(() => _installer.Install(
+            destination,
+            [Skill(temp, "Mockly", "2.0.0", "usage"), Skill(temp, "Mockly", "2.0.0", "new-skill")],
+            dryRun));
+
+        Assert.Contains("Mockly 2.0.0", error.Message);
+        Assert.Contains("installed skill 'usage'", error.Message);
+        Assert.Contains("destination path is a file", error.Message);
+        Assert.Contains("Remove or rename", error.Message);
+        Assert.Contains("uninstall with --package", error.Message);
+        Assert.Contains("No skills were changed", error.Message);
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+        Assert.Equal(before, Snapshot(destination));
+        Assert.False(Directory.Exists(Path.Combine(destination, "new-skill")));
+    }
+
+    [Fact]
+    public void A_blocking_file_at_the_same_version_remains_a_skipped_collision()
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.Combine("dest");
+        _installer.Install(destination, [Skill(temp, "Mockly", "1.0.0", "usage")], dryRun: false);
+        Directory.Delete(Path.Combine(destination, "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+
+        var outcome = _installer.Install(
+            destination,
+            [Skill(temp, "Mockly", "1.0.0", "usage")],
+            dryRun: false);
+
+        Assert.Empty(outcome.Installed);
+        Assert.Single(outcome.Skipped);
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+    }
+
     [Fact]
     public void Additive_install_skips_a_path_tracked_for_another_package()
     {
