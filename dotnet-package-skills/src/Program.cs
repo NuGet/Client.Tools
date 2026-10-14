@@ -70,7 +70,9 @@ namespace DotnetPackageSkills.Cli
 
             var globalPackages = new Option<string?>("--global-packages")
             {
-                Description = "Override the NuGet global-packages directory instead of asking the CLI.",
+                Description =
+                    "Override the NuGet global-packages directory instead of asking the CLI. " +
+                    "Relative paths resolve from the invocation directory.",
                 HelpName = "PATH",
             };
 

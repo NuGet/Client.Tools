@@ -111,6 +111,7 @@ public class CommandLineTests
         Assert.Contains("--target", output.ToString());
         Assert.Contains("auto-detected target", output.ToString());
         Assert.Contains("NuGet global-packages directory", output.ToString());
+        Assert.Contains("invocation directory", output.ToString());
         Assert.DoesNotContain("global packages folder", output.ToString());
     }
 

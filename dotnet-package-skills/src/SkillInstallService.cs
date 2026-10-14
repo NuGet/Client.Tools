@@ -22,6 +22,8 @@ public sealed record InstallRequest
 
     public required string Destination { get; init; }
     public required string WorkingDirectory { get; init; }
+
+    /// <summary>An explicit cache path, resolved relative to <see cref="WorkingDirectory"/>.</summary>
     public string? GlobalPackagesOverride { get; init; }
     public bool DryRun { get; init; }
 }
@@ -218,10 +220,15 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         return (packages, target);
     }
 
-    private string LocateGlobalPackages(InstallRequest request, string? preferredDirectory) =>
-        new GlobalPackagesLocator(dotnet).Locate(
-            request.GlobalPackagesOverride,
+    private string LocateGlobalPackages(InstallRequest request, string? preferredDirectory)
+    {
+        var explicitOverride = string.IsNullOrWhiteSpace(request.GlobalPackagesOverride)
+            ? request.GlobalPackagesOverride
+            : Path.GetFullPath(request.GlobalPackagesOverride, request.WorkingDirectory);
+        return new GlobalPackagesLocator(dotnet).Locate(
+            explicitOverride,
             preferredDirectory ?? request.WorkingDirectory);
+    }
 
     /// <remarks>
     /// A package missing from the NuGet global-packages directory contributes nothing, like one

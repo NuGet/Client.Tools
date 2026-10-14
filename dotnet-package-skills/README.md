@@ -310,7 +310,7 @@ combine.
 | `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID uses the destination manifest first, then `--target` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
 | `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
 | `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
-| `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. |
+| `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. A relative path is resolved from the invocation directory. |
 | `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--target` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
 | `-p, --package <ID[@VERSION]>` | uninstall | Removes only this package's skills. Removes whichever version is installed, or only the version you name. |
@@ -633,8 +633,9 @@ into a shape that the tool cannot trust. See
 **"Unrecognized option '--format'"** Your SDK is older than 7.0.200. Upgrade it.
 
 **The tool reads the wrong NuGet global-packages directory.** `nuget.config` discovery walks up
-from the current directory. Run the tool from your repository root instead, or pass
-`--global-packages` explicitly.
+from the selected target's directory. Put the config above that target, or pass
+`--global-packages` explicitly. A relative override is resolved from the directory where you
+invoke the tool.
 
 **A solution filter (`.slnf`) is rejected.** Not every SDK accepts a solution filter with
 `dotnet list package`. Pass the underlying `.sln` file instead, or run the tool once for each

@@ -67,6 +67,53 @@ public class SkillInstallServiceTests
     };
 
     [Theory]
+    [InlineData("full-target", 1)]
+    [InlineData("explicit", 0)]
+    [InlineData("manifest", 0)]
+    [InlineData("target-resolved", 1)]
+    public void Relative_global_packages_overrides_always_use_the_invocation_directory(
+        string mode,
+        int expectedListCalls)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "root-skill");
+        temp.CreateFile(
+            "src/packages/mockly/1.0.0/skills/nested-skill/SKILL.md",
+            "---\nname: nested-skill\n---\n");
+        var destination = temp.CreateDirectory("skills");
+        if (mode == "manifest")
+        {
+            var manifest = new InstallManifest();
+            manifest.SetSkills([new TrackedSkill("Mockly", "1.0.0", "installed")]);
+            manifest.Save(destination);
+        }
+
+        var runner = new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.0.0")));
+        var service = new SkillInstallService(runner);
+        var packages = mode switch
+        {
+            "full-target" => [],
+            "explicit" => [PackageCoordinate.Parse("Mockly@1.0.0")],
+            _ => new[] { PackageCoordinate.Parse("Mockly") },
+        };
+        var request = Request(temp) with
+        {
+            Destination = destination,
+            Target = target,
+            Packages = packages,
+            GlobalPackagesOverride = "packages",
+        };
+
+        var result = service.Discover(request);
+
+        Assert.Equal(temp.Combine("packages"), result.GlobalPackagesFolder);
+        Assert.Equal("root-skill", Assert.Single(result.Skills).SkillName);
+        Assert.DoesNotContain(result.Skills, skill => skill.SkillName == "nested-skill");
+        Assert.Equal(expectedListCalls, runner.Invocations.Count);
+    }
+
+    [Theory]
     [InlineData("list")]
     [InlineData("install")]
     [InlineData("dry-run")]
