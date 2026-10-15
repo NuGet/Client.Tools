@@ -227,6 +227,25 @@ public class PackageListerTests
         Assert.Contains("No skills were changed", error.Message);
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{ "version": 1, "projects": null }""")]
+    public void Parse_rejects_a_report_without_a_projects_array(string json)
+    {
+        var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+
+        Assert.Contains("incomplete package graph", error.Message);
+        Assert.Contains("projects", error.Message);
+        Assert.Contains("Restore or fix", error.Message);
+        Assert.Contains("No skills were changed", error.Message);
+    }
+
+    [Fact]
+    public void Parse_handles_an_explicitly_empty_projects_array()
+    {
+        Assert.Empty(PackageLister.Parse("""{ "version": 1, "projects": [] }"""));
+    }
+
     [Fact]
     public void Parse_handles_a_restored_framework_with_no_top_level_packages_property()
     {

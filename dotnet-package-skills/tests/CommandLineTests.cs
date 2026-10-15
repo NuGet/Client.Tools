@@ -283,6 +283,49 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("{}", false, false)]
+    [InlineData("{}", true, false)]
+    [InlineData("{}", false, true)]
+    [InlineData("""{ "version": 1, "projects": null }""", false, false)]
+    [InlineData("""{ "version": 1, "projects": null }""", true, false)]
+    [InlineData("""{ "version": 1, "projects": null }""", false, true)]
+    public void Missing_projects_stops_stale_uninstall_before_any_change(
+        string report,
+        bool dryRun,
+        bool interactive)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/MyApp.csproj");
+        var destination = temp.CreateDirectory("skills");
+        var skill = temp.CreateFile("skills/mockly/SKILL.md", "installed guidance");
+        var manifest = new InstallManifest();
+        manifest.SetSkills([new TrackedSkill("Mockly", "1.10.0", "mockly")]);
+        manifest.Save(destination);
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+        var runner = new FakeDotnet(report);
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var args = new List<string>
+        {
+            "uninstall", "--stale", "--target", target, "--destination", destination,
+        };
+        if (dryRun) { args.Add("--dry-run"); }
+        if (interactive) { args.Add("--interactive"); }
+
+        var exitCode = CommandLineBuilder.Invoke(
+            [.. args],
+            runner,
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Equal("installed guidance", File.ReadAllText(skill));
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+        Assert.Single(runner.Invocations);
+    }
+
+    [Theory]
     [InlineData("install", null)]
     [InlineData("list", null)]
     [InlineData("uninstall", "--stale")]

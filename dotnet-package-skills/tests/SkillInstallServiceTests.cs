@@ -1709,6 +1709,43 @@ public class SkillInstallServiceTests
         Assert.Equal(before, Snapshot(destination));
     }
 
+    [Theory]
+    [InlineData("list", "{}")]
+    [InlineData("install", "{}")]
+    [InlineData("list", """{ "version": 1, "projects": null }""")]
+    [InlineData("install", """{ "version": 1, "projects": null }""")]
+    public void Target_flows_reject_a_report_without_projects_before_changing_existing_skills(
+        string mode,
+        string report)
+    {
+        using var temp = new TempDirectory();
+        var target = temp.CreateFile("src/MyApp.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
+        new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json(("Mockly", "1.10.0"))))
+            .Install(Request(temp) with { Target = target });
+        var destination = temp.Combine(".agents", "skills");
+        var before = Snapshot(destination);
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), report));
+        var request = Request(temp) with { Target = target };
+
+        var error = Assert.Throws<PackageSkillsException>(() =>
+        {
+            if (mode == "install")
+            {
+                service.Install(request);
+            }
+            else
+            {
+                service.Discover(request);
+            }
+        });
+
+        Assert.Contains("incomplete package graph", error.Message);
+        Assert.Contains("projects", error.Message);
+        Assert.Contains("Restore or fix", error.Message);
+        Assert.Equal(before, Snapshot(destination));
+    }
+
     [Fact]
     public void A_restored_package_free_target_reports_no_skills_and_allows_stale_uninstall()
     {

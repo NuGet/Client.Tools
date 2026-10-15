@@ -101,7 +101,14 @@ public sealed class PackageLister(DotnetCli dotnet)
         // Keeping all versions also lets skill discovery report name collisions.
         var found = new Dictionary<(string Id, string Version), PackageReferenceInfo>();
 
-        foreach (var project in report.Projects ?? [])
+        if (report.Projects is null)
+        {
+            throw IncompleteGraph(
+                projectPath: null,
+                "the report did not include a projects array");
+        }
+
+        foreach (var project in report.Projects)
         {
             if (project.Frameworks is null)
             {
@@ -149,11 +156,9 @@ public sealed class PackageLister(DotnetCli dotnet)
 
     private static PackageSkillsException IncompleteGraph(string? projectPath, string detail)
     {
-        var project = string.IsNullOrWhiteSpace(projectPath)
-            ? "an unknown project"
-            : $"project '{projectPath}'";
+        var project = string.IsNullOrWhiteSpace(projectPath) ? "" : $" for project '{projectPath}'";
         return new PackageSkillsException(
-            $"'dotnet list package' returned an incomplete package graph for {project}: {detail}. " +
+            $"'dotnet list package' returned an incomplete package graph{project}: {detail}. " +
             "Restore or fix the target, then try again. No skills were changed.");
     }
 
