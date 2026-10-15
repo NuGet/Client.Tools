@@ -189,7 +189,7 @@ namespace DotnetPackageSkills.Cli
             };
             uninstall.Validators.Add(result =>
             {
-                var isStale = result.GetResult(stale) is not null;
+                var isStale = result.GetValue(stale);
 
                 if (isStale && result.GetResult(uninstallPackage) is not null)
                 {

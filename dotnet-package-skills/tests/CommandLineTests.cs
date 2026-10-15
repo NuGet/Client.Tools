@@ -237,15 +237,88 @@ public class CommandLineTests
         Assert.Contains(result.Errors, error => error.Message.Contains("--stale and --package cannot be combined"));
     }
 
+    [Fact]
+    public void Explicit_false_stale_can_be_combined_with_a_package_filter()
+    {
+        Assert.Empty(CommandLineBuilder.Build().Parse(
+            ["uninstall", "--stale", "false", "--package", "Mockly", "--dry-run"]).Errors);
+    }
+
     [Theory]
     [InlineData("--target")]
     [InlineData("-t")]
     public void Uninstall_target_needs_stale(string option)
     {
         var result = CommandLineBuilder.Build().Parse(["uninstall", option, "App.sln"]);
+        var explicitFalse = CommandLineBuilder.Build().Parse(
+            ["uninstall", "--stale", "false", option, "App.sln"]);
 
         Assert.Contains(result.Errors, error =>
             error.Message.Contains("--target can be used with uninstall only together with --stale", StringComparison.Ordinal));
+        Assert.Contains(explicitFalse.Errors, error =>
+            error.Message.Contains("--target can be used with uninstall only together with --stale", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void False_stale_with_target_stops_plain_uninstall_before_any_change(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("skills");
+        var skill = temp.CreateFile("skills/mockly/SKILL.md", "installed guidance");
+        var manifest = new InstallManifest();
+        manifest.SetSkills([new TrackedSkill("Mockly", "1.10.0", "mockly")]);
+        manifest.Save(destination);
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+        var runner = new FakeDotnet("{}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var args = new List<string>
+        {
+            "uninstall", "--stale", "false", "--target", temp.Combine("Missing.sln"), "--destination", destination,
+        };
+        if (dryRun) { args.Add("--dry-run"); }
+
+        var exitCode = CommandLineBuilder.Invoke([.. args], runner, output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("--target can be used with uninstall only together with --stale", error.ToString());
+        Assert.Equal("installed guidance", File.ReadAllText(skill));
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+        Assert.Empty(runner.Invocations);
+    }
+
+    [Fact]
+    public void False_stale_with_target_stops_before_the_interactive_picker()
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("skills");
+        var skill = temp.CreateFile("skills/mockly/SKILL.md", "installed guidance");
+        var manifest = new InstallManifest();
+        manifest.SetSkills([new TrackedSkill("Mockly", "1.10.0", "mockly")]);
+        manifest.Save(destination);
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+        var runner = new FakeDotnet("{}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = CommandLineBuilder.Invoke(
+            [
+                "uninstall", "--stale", "false", "--target", temp.Combine("Missing.sln"),
+                "--destination", destination, "--interactive",
+            ],
+            runner,
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("--target can be used with uninstall only together with --stale", error.ToString());
+        Assert.Equal("installed guidance", File.ReadAllText(skill));
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+        Assert.Empty(runner.Invocations);
     }
 
     [Theory]
