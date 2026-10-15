@@ -182,6 +182,8 @@ public class TerminalTextTests
     [InlineData("a\x1b[999mvisible", "avisible")]
     [InlineData("a\x1b]unterminated", "a")]
     [InlineData("a\x1b", "a")]
+    [InlineData("before\u001b[31;\u001b]52;c;SECRET\aafter", "beforeafter")]
+    [InlineData("before\u009b31;\u009d52;c;SECRET\u009cafter", "beforeafter")]
     public void Terminal_escape_strings_do_not_leak_their_payload(string input, string expected)
     {
         Assert.Equal(expected, TerminalText.Sanitize(input));

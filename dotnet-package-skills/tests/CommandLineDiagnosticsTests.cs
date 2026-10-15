@@ -54,6 +54,7 @@ public class CommandLineDiagnosticsTests
     [InlineData("before\u009d52;c;SECRET\u009cafter", "beforeafter")]
     [InlineData("before\u001bPSECRET\u001b\\after", "beforeafter")]
     [InlineData("before\u001b(0after", "beforeafter")]
+    [InlineData("before\u001b[31;\u001b]52;c;SECRET\aafter", "beforeafter")]
     [InlineData("before\u001b]8;;https://example.invalid\a链接\u001b]8;;\aafter", "before链接after")]
     [InlineData("👩🏽‍💻 e\u0301 中文 🇨🇦", "👩🏽‍💻 e\u0301 中文 🇨🇦")]
     [InlineData("  \ue000first\r\n    next\ue000  \r\n", "  \ue000first\n    next\ue000  \n")]

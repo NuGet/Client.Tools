@@ -17,7 +17,7 @@ internal static class TerminalText
         for (var index = 0; index < text.Length;)
         {
             var character = text[index];
-            if (character is '\x1b' or '\x9b' or '\x9d' or '\x90' or '\x98' or '\x9e' or '\x9f')
+            if (IsEscapeIntroducer(character))
             {
                 index = SkipEscape(text, index);
                 continue;
@@ -203,6 +203,11 @@ internal static class TerminalText
         {
             while (index < text.Length)
             {
+                if (IsEscapeIntroducer(text[index]))
+                {
+                    return index;
+                }
+
                 if (text[index++] is >= '\x40' and <= '\x7e')
                 {
                     break;
@@ -239,6 +244,9 @@ internal static class TerminalText
 
         return index;
     }
+
+    private static bool IsEscapeIntroducer(char character) =>
+        character is '\x1b' or '\x9b' or '\x9d' or '\x90' or '\x98' or '\x9e' or '\x9f';
 
     private static bool IsWide(int value) =>
         value != 0x303f && value is >= 0x1100 and <= 0x115f or
