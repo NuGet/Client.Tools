@@ -127,6 +127,31 @@ public class SkillInstallServiceTests
     }
 
     [Theory]
+    [InlineData(InstallManifest.FileName, false)]
+    [InlineData(InstallManifest.FileName, true)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON", false)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON", true)]
+    public void A_skill_named_for_the_install_manifest_is_ignored_before_installation(
+        string name,
+        bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("Collision.Package", "1.0.0", name);
+        var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
+        var request = Request(temp) with
+        {
+            Packages = [PackageCoordinate.Parse("Collision.Package@1.0.0")],
+            DryRun = dryRun,
+        };
+
+        var result = service.Install(request);
+
+        Assert.Empty(result.Skills);
+        Assert.Equal(0, result.SkillsDiscovered);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+    }
+
+    [Theory]
     [InlineData("list")]
     [InlineData("install")]
     [InlineData("dry-run")]

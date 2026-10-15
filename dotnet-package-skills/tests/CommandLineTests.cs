@@ -96,6 +96,36 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData(InstallManifest.FileName, false)]
+    [InlineData(InstallManifest.FileName, true)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON", false)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON", true)]
+    public void Install_ignores_skills_named_for_the_ownership_manifest(string name, bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("Collision.Package", "1.0.0", name);
+        var destination = temp.Combine("skills");
+        var runner = new FakeDotnet("{}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var args = new List<string>
+        {
+            "install",
+            "-p", "Collision.Package@1.0.0",
+            "-d", destination,
+            "--global-packages", temp.Combine("packages"),
+        };
+        if (dryRun) { args.Add("--dry-run"); }
+
+        var exitCode = CommandLineBuilder.Invoke([.. args], runner, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error.ToString());
+        Assert.False(Directory.Exists(destination));
+        Assert.Empty(runner.Invocations);
+    }
+
+    [Theory]
     [InlineData("install")]
     [InlineData("list")]
     public void Package_help_documents_optional_versions_and_the_manifest_source(string command)

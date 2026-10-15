@@ -67,6 +67,7 @@ public static class SkillDiscovery
     /// </summary>
     internal static bool IsSafeSkillName(string name) =>
         !string.IsNullOrWhiteSpace(name) &&
+        !name.Equals(InstallManifest.FileName, StringComparison.OrdinalIgnoreCase) &&
         !name.EndsWith('.') &&
         !name.EndsWith(' ') &&
         name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&

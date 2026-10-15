@@ -100,6 +100,17 @@ public class SkillDiscoveryTests
     }
 
     [Theory]
+    [InlineData(InstallManifest.FileName)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON")]
+    public void Discover_ignores_a_skill_named_for_the_install_manifest(string name)
+    {
+        using var temp = new TempDirectory();
+        var package = temp.CreatePackageWithSkill("Widgets", "1.0.0", name);
+
+        Assert.Empty(SkillDiscovery.Discover(package, "Widgets", "1.0.0"));
+    }
+
+    [Theory]
     [InlineData("widget-usage", true)]
     [InlineData("Widget.Usage_2", true)]
     [InlineData(".hidden-skill", true)]
@@ -117,6 +128,8 @@ public class SkillDiscoveryTests
     [InlineData("   ", false)]
     [InlineData("a/b", false)]
     [InlineData("a\\b", false)]
+    [InlineData(InstallManifest.FileName, false)]
+    [InlineData(".DOTNET-PACKAGE-SKILLS.JSON", false)]
     public void Skill_names_that_could_escape_the_destination_are_rejected(string name, bool expected) =>
         Assert.Equal(expected, SkillDiscovery.IsSafeSkillName(name));
 }
