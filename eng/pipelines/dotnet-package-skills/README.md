@@ -28,11 +28,11 @@ The reviewed base and prerelease label live in root `eng\Versions.props`. Arcade
 | Local | `0.1.0-dev` |
 | Public CI or PR | `0.1.0-ci` |
 | Official | `0.1.0-beta.<Arcade-short-date>.<revision>` |
-| Manual official stable opt-in | `0.1.0` |
+| Official stable opt-in | `0.1.0` |
 
 The official build number uses `yyyyMMdd.r`, not Azure's numeric BuildId.
-`DotnetPackageSkillsReleaseBuild` defaults to false. Only a manual trusted-main run can set it
-to true; that sets the native `DotNetFinalVersionKind=release` property.
+`DotnetPackageSkillsReleaseBuild` defaults to false for official prerelease versions. Setting
+it to true sets the native `DotNetFinalVersionKind=release` property for a stable version.
 
 Packages are under `artifacts\packages\Release\Shipping`; binaries are under
 `artifacts\bin\DotnetPackageSkills\Release\<tfm>`. The package remains a portable
@@ -41,9 +41,12 @@ The product and tests keep `SignAssembly=false`; dependencies keep their strong-
 
 ## Official signing prerequisites
 
-The official entry point includes MicroBuild resources only for non-PR main builds from
-TfsGit `NuGet-Client.Tools` in `dnceng/internal`. Untrusted source plans reject the run without
-including those signing resources. Keep the inherited 1ES governance and main-only PR filter.
+The official entry point directly includes the shared stage in official mode, enabling
+MicroBuild resources and retaining the inherited 1ES governance. Its main push trigger and
+`pr: none` control automatic runs, not which sources can be selected manually. There is no
+custom YAML guard enforcing repository identity, main-only/non-PR sources, or manual-only
+stable opt-in. Any required restrictions must be enforced through Azure DevOps branch and
+permission controls; their configuration and sufficiency have not been verified here.
 
 The owner must provide the approved `DotnetPackageSkillsSigningTeamName` and authorize the
 existing internal pool, 1ES templates, MicroBuild feed/shared connections, and signing profiles.
