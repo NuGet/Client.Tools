@@ -1,5 +1,6 @@
 <Project>
   <ItemGroup>
     <ProjectToBuild Include="$(RepoRoot)eng\Infrastructure.proj" />
+    <ProjectToBuild Include="$(RepoRoot)dotnet-package-skills\DotnetPackageSkills.slnx" />
   </ItemGroup>
 </Project>

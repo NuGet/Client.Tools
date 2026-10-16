@@ -1,3 +1,11 @@
+name: $(Date:yyyyMMdd).$(Rev:r)
+appendCommitMessageToRunName: false
+
+parameters:
+- name: DotnetPackageSkillsReleaseBuild
+  type: boolean
+  default: false
+
 trigger:
 - main
 
@@ -18,21 +26,16 @@ extends:
       demands: ImageOverride -equals windows.vs2026.amd64
       os: windows
     stages:
-    - stage: Build
-      jobs:
-      - template: /eng/common/templates-official/jobs/jobs.yml@self
+    - ${{ if and(eq(variables['Build.Repository.Provider'], 'TfsGit'), eq(variables['Build.Repository.Name'], 'NuGet-Client.Tools'), eq(variables['System.TeamProject'], 'internal'), eq(variables['System.CollectionUri'], 'https://dev.azure.com/dnceng/'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], ''), ne(variables['Build.Reason'], 'PullRequest'), or(eq(parameters.DotnetPackageSkillsReleaseBuild, false), eq(variables['Build.Reason'], 'Manual'))) }}:
+      - template: /eng/pipelines/dotnet-package-skills/stage.yml@self
         parameters:
-          enableMicrobuild: false
-          enableTelemetry: false
-          enablePublishBuildAssets: false
-          artifacts:
-            publish:
-              logs: true
-          jobs:
-          - job: ArcadeInfrastructure
-            variables:
-            - name: _BuildConfig
-              value: Release
-            steps:
-            - script: eng\common\build.cmd -restore -build -configuration $(_BuildConfig) -ci
-              displayName: Restore and validate Arcade infrastructure
+          jobsTemplate: /eng/common/templates-official/jobs/jobs.yml@self
+          isOfficialBuild: true
+          releaseBuild: ${{ parameters.DotnetPackageSkillsReleaseBuild }}
+    - ${{ else }}:
+      - stage: DotnetPackageSkills
+        jobs:
+        - job: RejectUntrustedSource
+          steps:
+          - script: exit /b 1
+            displayName: Official builds require trusted internal main; stable releases require a manual run
