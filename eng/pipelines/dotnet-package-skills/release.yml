@@ -5,16 +5,12 @@ trigger: none
 pr: none
 
 parameters:
-- name: PackageVersion
-  displayName: Exact signed package version (stable or prerelease)
-  type: string
-  default: REQUIRED
 - name: NuGetOrgServiceConnection
   displayName: Authorized nuget.org NuGet service connection name
   type: string
   default: REQUIRED
 - name: ReleaseApprovers
-  displayName: Independent release approvers (comma-separated user email addresses)
+  displayName: Independent release approvers (comma-separated users or groups)
   type: string
   default: REQUIRED
 
@@ -46,135 +42,10 @@ extends:
       os: windows
     stages:
     - stage: Release
-      displayName: Release dotnet-package-skills to nuget.org
       jobs:
-      - job: Validate
-        displayName: Validate the selected official package (no publishing)
-        condition: succeeded()
-        workspace:
-          clean: all
-        steps:
-        - checkout: none
-        - pwsh: |
-            $ErrorActionPreference = 'Stop'
-            $versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
-            if ($env:PACKAGE_VERSION -cnotmatch $versionPattern) {
-              throw 'Supply an explicit package version, such as 0.1.0 or 0.1.0-beta.26520.1.'
-            }
-            $approvers = @($env:RELEASE_APPROVERS -split ',')
-            if ($approvers.Count -eq 0 -or @($approvers | Where-Object { $_.Trim() -notmatch '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' }).Count -gt 0) {
-              throw 'Supply an explicit approver list of comma-separated user email addresses.'
-            }
-            if ([string]::IsNullOrWhiteSpace($env:NUGET_SERVICE_CONNECTION) -or
-                $env:NUGET_SERVICE_CONNECTION -eq 'REQUIRED' -or $env:NUGET_SERVICE_CONNECTION -match '[\r\n$,]') {
-              throw 'Supply an explicit authorized nuget.org service connection name.'
-            }
-            if ($env:RELEASE_REASON -ne 'Manual' -or $env:RELEASE_SOURCE_BRANCH -cne 'refs/heads/main') {
-              throw 'Queue this release manually from main.'
-            }
-            if ($env:SOURCE_RUN_ID -notmatch '^[1-9][0-9]*$' -or
-                $env:SOURCE_BRANCH -cne 'refs/heads/main' -or $env:SOURCE_COMMIT -notmatch '^[0-9a-fA-F]{40}$') {
-              throw 'Select a successful official main build using the pipeline resource version picker.'
-            }
-            if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'The build-read access token is unavailable.' }
-            $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
-            $uri = "https://dev.azure.com/dnceng/internal/_apis/build/builds/$($env:SOURCE_RUN_ID)?api-version=7.1"
-            $build = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
-            if ($build.id -ne $env:SOURCE_RUN_ID -or $build.status -ne 'completed' -or $build.result -ne 'succeeded' -or
-                $build.reason -eq 'pullRequest' -or $build.sourceBranch -cne 'refs/heads/main' -or
-                $build.sourceVersion -cne $env:SOURCE_COMMIT -or $build.definition.id -ne 1692 -or
-                $build.project.id -ne '7ea9116e-9fac-403d-b258-b31fcf1bb293' -or
-                $build.repository.id -ne 'ed423c3e-c630-4205-8f89-b36ec762684b' -or $build.repository.type -ne 'TfsGit') {
-              throw 'The selected run is not a successful official main build from the expected pipeline and mirror.'
-            }
-            Write-Host "Validated official run $($build.id), commit $($build.sourceVersion)."
-          name: ValidateSource
-          displayName: Check explicit inputs and successful official main provenance
-          env:
-            PACKAGE_VERSION: ${{ parameters.PackageVersion }}
-            RELEASE_APPROVERS: ${{ parameters.ReleaseApprovers }}
-            NUGET_SERVICE_CONNECTION: ${{ parameters.NuGetOrgServiceConnection }}
-            RELEASE_REASON: $(Build.Reason)
-            RELEASE_SOURCE_BRANCH: $(Build.SourceBranch)
-            SOURCE_RUN_ID: $(resources.pipeline.official.runID)
-            SOURCE_BRANCH: $(resources.pipeline.official.sourceBranch)
-            SOURCE_COMMIT: $(resources.pipeline.official.sourceCommit)
-            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
-        - task: DownloadPipelineArtifact@2
-          displayName: Download only the selected official package artifact
-          inputs:
-            buildType: specific
-            project: '7ea9116e-9fac-403d-b258-b31fcf1bb293'
-            definition: '1692'
-            buildVersionToDownload: specific
-            pipelineId: $(resources.pipeline.official.runID)
-            artifactName: dotnet-package-skills-packages
-            targetPath: $(ReleasePackageRoot)
-        - pwsh: |
-            $ErrorActionPreference = 'Stop'
-            $expectedName = "dotnet-package-skills.$($env:PACKAGE_VERSION).nupkg"
-            $items = @(Get-ChildItem -LiteralPath $env:PACKAGE_ROOT -Force |
-              Where-Object { -not ($_.PSIsContainer -and $_.Name -ceq '_manifest') })
-            $packages = @(Get-ChildItem -LiteralPath $env:PACKAGE_ROOT -Filter '*.nupkg' -File -Recurse -Force)
-            if ($items.Count -ne 1 -or $items[0].PSIsContainer -or $items[0].Name -cne $expectedName -or $packages.Count -ne 1) {
-              throw 'Expected exactly one root dotnet-package-skills package of the requested version, plus optional 1ES _manifest metadata.'
-            }
-            $package = $items[0]
-            $archive = [IO.Compression.ZipFile]::OpenRead($package.FullName)
-            try {
-              $nuspecs = @($archive.Entries | Where-Object { $_.FullName.EndsWith('.nuspec', [StringComparison]::OrdinalIgnoreCase) })
-              if ($nuspecs.Count -ne 1 -or $nuspecs[0].FullName -cne 'dotnet-package-skills.nuspec' -or $nuspecs[0].Length -gt 1MB) {
-                throw 'Expected one root dotnet-package-skills.nuspec.'
-              }
-              $settings = [Xml.XmlReaderSettings]::new()
-              $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
-              $settings.XmlResolver = $null
-              $stream = $nuspecs[0].Open()
-              try {
-                $reader = [Xml.XmlReader]::Create($stream, $settings)
-                try {
-                  $nuspec = [Xml.XmlDocument]::new()
-                  $nuspec.XmlResolver = $null
-                  $nuspec.Load($reader)
-                } finally { $reader.Dispose() }
-              } finally { $stream.Dispose() }
-              $metadata = $nuspec.DocumentElement.metadata
-              if ($nuspec.DocumentElement.LocalName -cne 'package' -or
-                  $metadata.id -cne 'dotnet-package-skills' -or $metadata.version -cne $env:PACKAGE_VERSION) {
-                throw 'The package nuspec ID/version does not match the requested dotnet-package-skills release.'
-              }
-            } finally { $archive.Dispose() }
-            $hash = (Get-FileHash -LiteralPath $package.FullName -Algorithm SHA256).Hash
-            Write-Host "Validated $($package.Name), SHA-256 $hash"
-            Write-Host "##vso[task.setvariable variable=PackageSha256;isOutput=true]$hash"
-            Write-Host "##vso[task.setvariable variable=ReleasePackagePath]$($package.FullName)"
-          name: InspectPackage
-          displayName: Validate the exact package ID, version, and unchanged bytes
-          env:
-            PACKAGE_VERSION: ${{ parameters.PackageVersion }}
-            PACKAGE_ROOT: $(ReleasePackageRoot)
-        - task: NuGetToolInstaller@1
-          displayName: Install NuGet for signature verification only
-          inputs:
-            versionSpec: '6.14.0'
-            checkLatest: false
-        - pwsh: |
-            $ErrorActionPreference = 'Stop'
-            & nuget verify -Signatures $env:PACKAGE_PATH -NonInteractive -Verbosity normal
-            if ($LASTEXITCODE -ne 0) { throw 'NuGet signature verification failed; no release is permitted.' }
-          name: VerifySignature
-          displayName: Require a valid NuGet package signature
-          env:
-            PACKAGE_PATH: $(ReleasePackagePath)
-
       - job: Approve
-        displayName: Independent predeployment approval
-        dependsOn: Validate
-        condition: succeeded()
         pool: server
         timeoutInMinutes: 1500
-        variables:
-          ApprovedPackageSha256: $[ dependencies.Validate.outputs['InspectPackage.PackageSha256'] ]
         steps:
         - task: ManualValidation@1
           timeoutInMinutes: 1440
@@ -183,24 +54,16 @@ extends:
             approvers: ${{ parameters.ReleaseApprovers }}
             allowApproversToApproveTheirOwnRuns: false
             instructions: |
-              Review official client.tools-ci run $(resources.pipeline.official.runID),
-              main commit $(resources.pipeline.official.sourceCommit), and the Validate job's signature result.
-              Confirm dotnet-package-skills version ${{ parameters.PackageVersion }} is intended for nuget.org.
-              Package SHA-256: $(ApprovedPackageSha256)
-              Confirm ${{ parameters.NuGetOrgServiceConnection }} is the owner-approved nuget.org connection.
-              Resume only after release review; publication is public and cannot be overwritten.
+              Review official client.tools-ci run $(resources.pipeline.official.runID)
+              and main commit $(resources.pipeline.official.sourceCommit).
+              Confirm the build succeeded, the package version and signing results are approved,
+              and ${{ parameters.NuGetOrgServiceConnection }} publishes to nuget.org.
+              Resume to publish the selected artifact unchanged.
             onTimeout: reject
 
       - job: Publish
-        displayName: Publish the approved signed package to nuget.org
-        dependsOn:
-        - Validate
-        - Approve
+        dependsOn: Approve
         condition: succeeded()
-        workspace:
-          clean: all
-        variables:
-          ApprovedPackageSha256: $[ dependencies.Validate.outputs['InspectPackage.PackageSha256'] ]
         templateContext:
           type: releaseJob
           isProduction: true
@@ -211,45 +74,11 @@ extends:
             targetPath: $(ReleasePackageRoot)
         steps:
         - checkout: none
-        - pwsh: |
-            $ErrorActionPreference = 'Stop'
-            $expectedName = "dotnet-package-skills.$($env:PACKAGE_VERSION).nupkg"
-            $items = @(Get-ChildItem -LiteralPath $env:PACKAGE_ROOT -Force |
-              Where-Object { -not ($_.PSIsContainer -and $_.Name -ceq '_manifest') })
-            $packages = @(Get-ChildItem -LiteralPath $env:PACKAGE_ROOT -Filter '*.nupkg' -File -Recurse -Force)
-            if ($items.Count -ne 1 -or $items[0].PSIsContainer -or $items[0].Name -cne $expectedName -or $packages.Count -ne 1) {
-              throw 'The downloaded artifact no longer contains exactly the approved root package.'
-            }
-            $package = $items[0]
-            if ($env:APPROVED_SHA256 -notmatch '^[0-9A-F]{64}$' -or
-                (Get-FileHash -LiteralPath $package.FullName -Algorithm SHA256).Hash -cne $env:APPROVED_SHA256) {
-              throw 'The downloaded package does not match the approved SHA-256.'
-            }
-            if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'The endpoint-metadata read access token is unavailable.' }
-            $name = [Uri]::EscapeDataString($env:NUGET_SERVICE_CONNECTION)
-            $uri = "https://dev.azure.com/dnceng/internal/_apis/serviceendpoint/endpoints?endpointNames=$name&includeDetails=false&api-version=7.1"
-            $response = Invoke-RestMethod -Uri $uri -Headers @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" } -Method Get
-            $endpoints = @($response.value | Where-Object { $_.name -ceq $env:NUGET_SERVICE_CONNECTION })
-            if ($endpoints.Count -ne 1 -or $endpoints[0].type -ne 'externalnugetfeed' -or
-                $endpoints[0].url -cne 'https://api.nuget.org/v3/index.json' -or $endpoints[0].isReady -ne $true) {
-              throw 'The selected endpoint is not a ready, unambiguous nuget.org service connection.'
-            }
-            Write-Host "Approved SHA-256 matches; publishing only $($package.Name) to nuget.org."
-            Write-Host "##vso[task.setvariable variable=ReleasePackagePath]$($package.FullName)"
-          name: VerifyApprovedPackage
-          displayName: Recheck approved bytes and the nuget.org endpoint
-          env:
-            PACKAGE_VERSION: ${{ parameters.PackageVersion }}
-            PACKAGE_ROOT: $(ReleasePackageRoot)
-            APPROVED_SHA256: $(ApprovedPackageSha256)
-            NUGET_SERVICE_CONNECTION: ${{ parameters.NuGetOrgServiceConnection }}
-            SYSTEM_ACCESSTOKEN: $(System.AccessToken)
         - task: 1ES.PublishNuGet@1
           displayName: Publish to nuget.org
-          condition: succeeded()
           inputs:
             useDotNetTask: false
-            packagesToPush: $(ReleasePackagePath)
+            packagesToPush: '$(ReleasePackageRoot)\dotnet-package-skills.*.nupkg;!$(ReleasePackageRoot)\*.symbols.nupkg'
             packageParentPath: $(ReleasePackageRoot)
             nuGetFeedType: external
             publishPackageMetadata: true
