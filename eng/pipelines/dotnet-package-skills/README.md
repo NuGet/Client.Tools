@@ -48,26 +48,18 @@ custom YAML guard enforcing repository identity, main-only/non-PR sources, or ma
 stable opt-in. Any required restrictions must be enforced through Azure DevOps branch and
 permission controls; their configuration and sufficiency have not been verified here.
 
-The official entry point sets `DotnetPackageSkillsSigningTeamName=NuGet.Client`. The shared
-stage forwards this value unchanged through `_TeamName` to the MicroBuild plugin's `TeamName`
-environment variable and the build's `/p:TeamName`. The owner must authorize the existing
-internal pool, 1ES templates, MicroBuild feed/shared connections, and signing profiles.
+The owner must provide the approved `DotnetPackageSkillsSigningTeamName` and authorize the
+existing internal pool, 1ES templates, MicroBuild feed/shared connections, and signing profiles.
 No credentials or permissions are created by this pipeline. The trusted mirror must contain
 the reviewed main commit before a real-signing run.
-
-The official entry point requests `networkIsolationPolicy: Permissive,CFSClean,CFSClean2`
-under `extends.parameters.settings`, matching
-[dotnet/sign's official pipeline](https://github.com/dotnet/sign/blob/e9bed5c7e08b3c03bd15a6d258dea9f5bca8c53c/.vsts-ci.yml#L37-L41).
-Centrally mandated policies may still apply; this requested setting does not remove or
-override them.
 
 Root `eng\Signing.props` imports the concise module `Signing.props`. It lists the tool package
 and both loose owned DLLs. Arcade uses the .NET certificate for first-party DLLs and the
 standard NuGet profile for the package. YamlDotNet uses `3PartySHA2`. Already signed Microsoft
 dependencies keep their original signatures. This follows how
 [dotnet/sign builds its own releases](https://github.com/dotnet/sign/blob/f3cc758ffd4f5edccb567820606b17eea49745c0/.vsts-ci.yml),
-not the public sign CLI. Hosted real-signing acceptance remains pending a successful authorized
-official run after review, merge, and mirroring; local or public builds do not prove it.
+not the public sign CLI. Real-signing acceptance requires a successful authorized official run;
+local or public builds do not prove it.
 
 ## Local build and retirement
 
