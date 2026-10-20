@@ -26,7 +26,7 @@ extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
   parameters:
     settings:
-      networkIsolationPolicy: Permissive,CFSClean,CFSClean2
+      networkIsolationPolicy: Preferred,ESRP
     pool:
       name: NetCore1ESPool-Internal
       demands: ImageOverride -equals windows.vs2026.amd64
