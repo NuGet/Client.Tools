@@ -37,7 +37,8 @@ it to true sets the native `DotNetFinalVersionKind=release` property for a stabl
 Packages are under `artifacts\packages\Release\Shipping`; binaries are under
 `artifacts\bin\DotnetPackageSkills\Release\<tfm>`. The package remains a portable
 `tools/<tfm>/any` tool for both frameworks. Only the product is packable and shipping.
-The product and tests keep `SignAssembly=false`; dependencies keep their strong-name identities.
+The product and tests inherit Arcade's strong-name defaults and are public-signed in local builds;
+dependencies keep their strong-name identities.
 
 ## Official signing prerequisites
 
