@@ -170,6 +170,64 @@ public class InstallManifestTests
         Assert.Equal(["first", "second"], manifest.Packages["mockly"].Skills);
     }
 
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public void Manifest_writing_obeys_the_packaging_id_length_limit(int length, bool valid)
+    {
+        var id = new string('A', length);
+        var manifest = new InstallManifest();
+        var skills = new[] { new TrackedSkill(id, "1.0.0", "usage") };
+
+        if (valid)
+        {
+            manifest.SetSkills(skills);
+            Assert.Contains(id.ToLowerInvariant(), manifest.Packages.Keys);
+        }
+        else
+        {
+            Assert.Throws<PackageSkillsException>(() => manifest.SetSkills(skills));
+            Assert.Empty(manifest.EnumerateSkills());
+        }
+    }
+
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public void Manifest_reading_obeys_the_packaging_id_length_limit(int length, bool valid)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("skills");
+        var id = new string('a', length);
+        var contents = $$"""
+            {
+              "version": 1,
+              "packages": {
+                "{{id}}": {
+                  "version": "1.0.0",
+                  "skills": ["usage"]
+                }
+              }
+            }
+            """;
+        var path = temp.CreateFile(Path.Combine("skills", InstallManifest.FileName), contents);
+        var before = File.ReadAllBytes(path);
+
+        if (valid)
+        {
+            Assert.Equal(
+                new TrackedSkill(id, "1.0.0", "usage"),
+                Assert.Single(InstallManifest.Load(destination).EnumerateSkills()));
+        }
+        else
+        {
+            var error = Assert.Throws<PackageSkillsException>(() => InstallManifest.Load(destination));
+            Assert.Contains("not a valid package id", error.Message);
+        }
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
     [Fact]
     public void A_package_id_that_the_reader_would_refuse_is_never_written()
     {
