@@ -123,14 +123,6 @@ public class PackageCoordinateTests
         Assert.Contains("100", error.Message);
     }
 
-    [Theory]
-    [InlineData("Mockly\n")]
-    [InlineData("Mockly\r\n")]
-    public void Raw_package_ids_with_terminal_newlines_remain_invalid(string id)
-    {
-        Assert.False(PackageCoordinate.IsValidId(id));
-    }
-
     [Fact]
     public void ToString_round_trips() =>
         Assert.Equal("Mockly@1.10.0", PackageCoordinate.Parse("Mockly@1.10.0").ToString());

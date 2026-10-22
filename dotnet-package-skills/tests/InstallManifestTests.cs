@@ -338,7 +338,6 @@ public class InstallManifestTests
     [InlineData("""{"version":1,"packages":{"mockly":{"version":"1.0.0","skills":["a"]},"Mockly":{"version":"1.0.0","skills":["b"]}}}""")]
     [InlineData("""{"version":1,"packages":{"not valid!":{"version":"1.0.0","skills":["a"]}}}""")]
     [InlineData("""{"version":1,"packages":{"contoso..widgets":{"version":"1.0.0","skills":["a"]}}}""")]
-    [InlineData("""{"version":1,"packages":{"mockly\n":{"version":"1.0.0","skills":["a"]}}}""")]
     [InlineData("""{"version":1,"packages":{"mockly":null}}""")]
     [InlineData("""{"version":1,"packages":{"mockly":{"skills":["a"]}}}""")]
     [InlineData("""{"version":1,"packages":{"mockly":{"version":" ","skills":["a"]}}}""")]

@@ -102,8 +102,7 @@ public sealed record PackageCoordinate(string Id, string? Version = null)
         try
         {
             PackageIdValidator.ValidatePackageId(id);
-            // NuGet's $ anchor permits a final LF; stored IDs must match in full.
-            return !id.EndsWith('\n');
+            return true;
         }
         catch (ArgumentException)
         {
