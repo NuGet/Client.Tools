@@ -69,9 +69,7 @@ dotnet-package-skills install -p Mockly -t src/MyApp.slnx  # manifest version, t
 ```
 
 `-p` and `--package` accept `ID` or `ID@VERSION` for install and list. Package IDs are matched
-without regard to case. Package IDs follow NuGet's packaging validation and must be 100 characters
-or fewer. Unicode package IDs remain supported. IDs read from a target or an existing install
-manifest must satisfy the same rules.
+without regard to case. Package IDs follow NuGet's packaging validation.
 
 For each bare ID, the tool first uses the exact version recorded in the
 selected destination's `.dotnet-package-skills.json`. Use `--destination` to select a different
