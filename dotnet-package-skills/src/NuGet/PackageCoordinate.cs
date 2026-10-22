@@ -1,10 +1,10 @@
-using System.Text.RegularExpressions;
+using NuGet.Packaging;
 using NuGet.Versioning;
 
 namespace DotnetPackageSkills.NuGet;
 
 /// <summary>A package selection, written as <c>Id</c> or <c>Id@Version</c> on the command line.</summary>
-public sealed partial record PackageCoordinate(string Id, string? Version = null)
+public sealed record PackageCoordinate(string Id, string? Version = null)
 {
     public const char Separator = '@';
 
@@ -89,15 +89,26 @@ public sealed partial record PackageCoordinate(string Id, string? Version = null
         if (!IsValidId(id))
         {
             throw new PackageSkillsException(
-                $"'{id}' is not a valid package id. Ids are letters, digits and '_', joined by single '.' or '-' characters.");
+                $"'{id}' is not a valid package id. Ids must be {PackageIdValidator.MaxPackageIdLength} characters or fewer " +
+                "and use letters, digits and '_', joined by single '.' or '-' characters.");
         }
     }
 
     /// <summary>
-    /// NuGet's own rule for package ids, so any id that restore accepts is accepted here too,
-    /// including letters outside ASCII.
+    /// Uses NuGet's packaging rules for package ids, including Unicode characters and length.
     /// </summary>
-    internal static bool IsValidId(string id) => PackageIdPattern().IsMatch(id);
+    internal static bool IsValidId(string id)
+    {
+        try
+        {
+            PackageIdValidator.ValidatePackageId(id);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Wildcards and NuGet interval notation: <c>4.*</c>, <c>[1.0,2.0)</c>, <c>(,3.0]</c>.</summary>
     private static readonly char[] RangeCharacters = ['*', '[', ']', '(', ')', ','];
@@ -105,9 +116,4 @@ public sealed partial record PackageCoordinate(string Id, string? Version = null
     private static bool IsFloatingOrRange(string version) => version.IndexOfAny(RangeCharacters) >= 0;
 
     public override string ToString() => Version is null ? Id : $"{Id}{Separator}{Version}";
-
-    // NuGet's PackageIdValidator pattern, with \z so a trailing newline can't end a match.
-    [GeneratedRegex(@"^\w+([.-]\w+)*\z", RegexOptions.CultureInvariant)]
-    private static partial Regex PackageIdPattern();
-
 }

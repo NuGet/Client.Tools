@@ -213,6 +213,29 @@ public class PackageListerTests
         Assert.Equal("4.7.2", PackageLister.Parse(json).Single().Version);
     }
 
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public void SDK_report_package_ids_obey_the_packaging_length_limit(int length, bool valid)
+    {
+        var id = new string('A', length);
+        var json = $$"""
+            {"version":1,"projects":[{"frameworks":[{"topLevelPackages":[
+              {"id":"{{id}}","resolvedVersion":"1.0.0"}
+            ]}]}]}
+            """;
+
+        if (valid)
+        {
+            Assert.Equal(id, Assert.Single(PackageLister.Parse(json)).Id);
+        }
+        else
+        {
+            var error = Assert.Throws<PackageSkillsException>(() => PackageLister.Parse(json));
+            Assert.Contains("not a valid package id", error.Message);
+        }
+    }
+
     [Fact]
     public void Parse_rejects_an_unrestored_project_with_no_frameworks_array()
     {

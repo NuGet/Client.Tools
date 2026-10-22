@@ -88,6 +88,41 @@ public class PackageCoordinateTests
     public void Parse_rejects_malformed_input(string input) =>
         Assert.Throws<PackageSkillsException>(() => PackageCoordinate.Parse(input));
 
+    [Theory]
+    [InlineData('A', 100, true)]
+    [InlineData('A', 101, false)]
+    [InlineData('\u00DC', 100, true)]
+    [InlineData('\u00DC', 101, false)]
+    public void Package_id_length_follows_NuGet_packaging_rules(
+        char character, int length, bool valid)
+    {
+        Assert.Equal(valid, PackageCoordinate.IsValidId(new string(character, length)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Maximum_length_ids_are_accepted_in_bare_and_exact_selectors(bool exact)
+    {
+        var id = new string('A', 100);
+        var coordinate = PackageCoordinate.Parse(exact ? $"{id}@1.0.0" : id);
+
+        Assert.Equal(id, coordinate.Id);
+        Assert.Equal(exact ? "1.0.0" : null, coordinate.Version);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Overlength_ids_are_rejected_in_bare_and_exact_selectors(bool exact)
+    {
+        var id = new string('A', 101);
+        var error = Assert.Throws<PackageSkillsException>(
+            () => PackageCoordinate.Parse(exact ? $"{id}@1.0.0" : id));
+
+        Assert.Contains("100", error.Message);
+    }
+
     [Fact]
     public void ToString_round_trips() =>
         Assert.Equal("Mockly@1.10.0", PackageCoordinate.Parse("Mockly@1.10.0").ToString());
