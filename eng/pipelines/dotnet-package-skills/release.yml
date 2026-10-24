@@ -1,0 +1,85 @@
+name: dotnet-package-skills-release-$(Date:yyyyMMdd).$(Rev:r)
+appendCommitMessageToRunName: false
+
+trigger: none
+pr: none
+
+parameters:
+- name: NuGetOrgServiceConnection
+  displayName: Authorized nuget.org NuGet service connection name
+  type: string
+  default: REQUIRED
+- name: ReleaseApprovers
+  displayName: Independent release approvers (comma-separated users or groups)
+  type: string
+  default: REQUIRED
+
+variables:
+- name: ReleasePackageRoot
+  value: $(Pipeline.Workspace)\dotnet-package-skills-packages
+
+resources:
+  pipelines:
+  - pipeline: official
+    project: internal
+    source: 'NuGet\client.tools-ci'
+    branch: refs/heads/main
+    trigger: none
+  repositories:
+  - repository: 1esPipelines
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1esPipelines
+  parameters:
+    settings:
+      networkIsolationPolicy: Preferred,NuGet,AzureStorage,CFSClean,CFSClean2,CFSClean3
+    pool:
+      name: NetCore1ESPool-Internal
+      demands: ImageOverride -equals windows.vs2026.amd64
+      os: windows
+    stages:
+    - stage: Release
+      jobs:
+      - job: Approve
+        pool: server
+        timeoutInMinutes: 1500
+        steps:
+        - task: ManualValidation@1
+          timeoutInMinutes: 1440
+          inputs:
+            notifyUsers: ${{ parameters.ReleaseApprovers }}
+            approvers: ${{ parameters.ReleaseApprovers }}
+            allowApproversToApproveTheirOwnRuns: false
+            instructions: |
+              Review official client.tools-ci run $(resources.pipeline.official.runID)
+              and main commit $(resources.pipeline.official.sourceCommit).
+              Confirm the build succeeded, the package version and signing results are approved,
+              and ${{ parameters.NuGetOrgServiceConnection }} publishes to nuget.org.
+              Resume to publish the selected artifact unchanged.
+            onTimeout: reject
+
+      - job: Publish
+        dependsOn: Approve
+        condition: succeeded()
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: official
+            artifactName: dotnet-package-skills-packages
+            targetPath: $(ReleasePackageRoot)
+        steps:
+        - checkout: none
+        - task: 1ES.PublishNuGet@1
+          displayName: Publish to nuget.org
+          inputs:
+            useDotNetTask: false
+            packagesToPush: '$(ReleasePackageRoot)\dotnet-package-skills.*.nupkg;!$(ReleasePackageRoot)\*.symbols.nupkg'
+            packageParentPath: $(ReleasePackageRoot)
+            nuGetFeedType: external
+            publishPackageMetadata: true
+            publishFeedCredentials: ${{ parameters.NuGetOrgServiceConnection }}

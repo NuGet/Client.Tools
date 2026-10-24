@@ -19,10 +19,12 @@
          dotnet CLI maps `dotnet <verb>` to an executable named `dotnet-<verb>`. -->
     <ToolCommandName>dotnet-package-skills</ToolCommandName>
     <PackageId>dotnet-package-skills</PackageId>
-    <Authors>dotnet-package-skills contributors</Authors>
+    <Authors>Microsoft</Authors>
     <Description>Copies agent skills bundled inside NuGet packages from the NuGet global-packages directory into a repository's skills directory, where coding agents can actually find them.</Description>
     <PackageTags>dotnet-tool;nuget;ai;agent;skills;claude;copilot</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageIconFullPath>$(MSBuildThisFileDirectory)..\icon.png</PackageIconFullPath>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/NuGet/Client.Tools/tree/main/dotnet-package-skills</PackageProjectUrl>
     <RepositoryUrl>https://github.com/NuGet/Client.Tools</RepositoryUrl>
