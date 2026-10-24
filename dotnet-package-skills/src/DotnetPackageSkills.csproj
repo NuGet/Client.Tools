@@ -40,8 +40,6 @@
 
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="/" />
-    <None Remove="NuGet\NuGet.Client.LICENSE.txt" />
-    <None Include="NuGet\NuGet.Client.LICENSE.txt" Pack="true" PackagePath="licenses\" />
     <InternalsVisibleTo Include="DotnetPackageSkills.Tests" />
   </ItemGroup>
 

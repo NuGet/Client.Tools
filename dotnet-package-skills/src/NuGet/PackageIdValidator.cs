@@ -1,5 +1,5 @@
 // Copyright (c) .NET Foundation. All rights reserved.
-// Licensed under the Apache License, Version 2.0. See NuGet.Client.LICENSE.txt.
+// Licensed under the Apache License, Version 2.0. See https://www.apache.org/licenses/LICENSE-2.0.
 // Adapted from NuGet.Client: namespace and resource strings changed; unused overload omitted.
 // https://github.com/NuGet/NuGet.Client/blob/977537e19c6be57fead1411e6cf05f936bf1baf4/src/NuGet.Core/NuGet.Packaging/PackageCreation/Utility/PackageIdValidator.cs
 
