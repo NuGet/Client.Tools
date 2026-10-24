@@ -31,7 +31,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NuGet.Packaging" Version="7.9.0" />
     <PackageReference Include="NuGet.Versioning" Version="7.9.0" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.10" />
@@ -39,6 +38,8 @@
 
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="/" />
+    <None Remove="NuGet\NuGet.Client.LICENSE.txt" />
+    <None Include="NuGet\NuGet.Client.LICENSE.txt" Pack="true" PackagePath="licenses\" />
     <InternalsVisibleTo Include="DotnetPackageSkills.Tests" />
   </ItemGroup>
 
