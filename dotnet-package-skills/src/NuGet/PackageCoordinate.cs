@@ -1,4 +1,3 @@
-using NuGet.Packaging;
 using NuGet.Versioning;
 
 namespace DotnetPackageSkills.NuGet;
