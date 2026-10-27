@@ -10,7 +10,6 @@
   <Import Project="..\Directory.Build.props" />
 
   <PropertyGroup>
-    <SignAssembly>false</SignAssembly>
     <IsShipping>false</IsShipping>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <LangVersion>latest</LangVersion>

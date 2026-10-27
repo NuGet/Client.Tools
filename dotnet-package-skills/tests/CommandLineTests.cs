@@ -658,6 +658,59 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("install", false)]
+    [InlineData("install", true)]
+    [InlineData("list", false)]
+    [InlineData("list", true)]
+    [InlineData("uninstall", false)]
+    [InlineData("uninstall", true)]
+    public void Overlength_selectors_fail_before_runner_or_destination_changes(
+        string command, bool exact)
+    {
+        using var temp = new TempDirectory();
+        var destination = temp.CreateDirectory("skills");
+        var ownedPath = temp.CreateFile(Path.Combine("skills", "owned", "SKILL.md"), "keep");
+        var manifest = new InstallManifest();
+        manifest.SetSkills([new TrackedSkill("Keep.Package", "1.0.0", "owned")]);
+        manifest.Save(destination);
+        var manifestPath = Path.Combine(destination, InstallManifest.FileName);
+        var beforeManifest = File.ReadAllBytes(manifestPath);
+        var beforeSkill = File.ReadAllBytes(ownedPath);
+        var beforePaths = Directory.GetFileSystemEntries(
+            destination, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray();
+        var id = new string('A', 101);
+        temp.CreatePackageWithSkill(id, "1.0.0", "usage");
+        var target = temp.CreateFile("App.csproj");
+        var runner = new FakeDotnet($$"""
+            {"version":1,"projects":[{"frameworks":[{"topLevelPackages":[
+              {"id":"{{id}}","resolvedVersion":"1.0.0"}
+            ]}]}]}
+            """);
+        var arguments = new List<string>
+        {
+            command, "--package", exact ? $"{id}@1.0.0" : id, "--destination", destination,
+        };
+        if (command != "uninstall")
+        {
+            arguments.AddRange(["--target", target, "--global-packages", temp.Combine("packages")]);
+        }
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = CommandLineBuilder.Invoke([.. arguments], runner, output, error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(runner.Invocations);
+        Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
+        Assert.Equal(beforeSkill, File.ReadAllBytes(ownedPath));
+        Assert.Equal(
+            beforePaths,
+            Directory.GetFileSystemEntries(
+                destination, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray());
+    }
+
+    [Theory]
     [InlineData("--help", null)]
     [InlineData("--version", null)]
     [InlineData("uninstall", "--help")]
