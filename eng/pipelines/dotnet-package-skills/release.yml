@@ -66,8 +66,6 @@ extends:
         dependsOn: Approve
         condition: succeeded()
         templateContext:
-          type: releaseJob
-          isProduction: true
           inputs:
           - input: pipelineArtifact
             pipeline: official
