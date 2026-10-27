@@ -81,6 +81,7 @@ extends:
             packagesToPush: '$(ReleasePackageRoot)\dotnet-package-skills.*.nupkg;!$(ReleasePackageRoot)\*.symbols.nupkg'
             packageParentPath: $(ReleasePackageRoot)
             nuGetFeedType: external
+            publishPackageMetadata: true
             publishFeedCredentials: ${{ parameters.NuGetOrgServiceConnection }}
         steps:
         - checkout: none
