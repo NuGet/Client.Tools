@@ -27,12 +27,8 @@ public class SkillInstallServiceTests
 
             if (arguments.Contains("list"))
             {
+                Assert.Contains("--no-restore", arguments);
                 return new ProcessResult(0, listPackageJson, string.Empty);
-            }
-
-            if (arguments.Contains("restore"))
-            {
-                return new ProcessResult(0, "Restore succeeded.", string.Empty);
             }
 
             throw new InvalidOperationException($"Unexpected invocation: {line}");

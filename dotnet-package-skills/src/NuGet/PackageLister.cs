@@ -10,7 +10,7 @@ public sealed record PackageReferenceInfo(string Id, string Version);
 
 /// <summary>
 /// Lists the packages a solution or project resolves to, by way of
-/// <c>dotnet list &lt;target&gt; package --format json</c>.
+/// <c>dotnet list &lt;target&gt; package --no-restore --format json</c>.
 /// </summary>
 public sealed class PackageLister(DotnetCli dotnet)
 {
@@ -22,8 +22,7 @@ public sealed class PackageLister(DotnetCli dotnet)
     };
 
     /// <summary>
-    /// Runs <c>dotnet list package</c> as it is. Whether it restores is the SDK's call: the .NET 10
-    /// SDK restores when it needs to, and earlier SDKs say the target has to be restored first.
+    /// Runs <c>dotnet list package --no-restore</c>. The target must already be restored.
     /// </summary>
     /// <remarks>
     /// This tool never restores. A failure is reported with what the SDK said, so the customer can
@@ -32,7 +31,7 @@ public sealed class PackageLister(DotnetCli dotnet)
     public IReadOnlyList<PackageReferenceInfo> List(string target)
     {
         // The target goes *before* the `package` verb: `dotnet list <TARGET> package`.
-        var arguments = new List<string> { "list", target, "package", "--format", "json" };
+        var arguments = new List<string> { "list", target, "package", "--no-restore", "--format", "json" };
         var result = dotnet.Run(arguments, workingDirectory: Path.GetDirectoryName(target));
 
         if (result.ExitCode != 0)
