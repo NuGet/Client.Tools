@@ -143,7 +143,7 @@ public class OutputWriterTests
         Assert.Contains($"Destination: {TerminalText.Sanitize(path)}", report);
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", report);
         Assert.DoesNotContain("dotnet-package-skills uninstall", report);
-        Assert.DoesNotContain("--target", report);
+        Assert.DoesNotContain("--source", report);
         Assert.DoesNotContain("--destination", report);
         AssertPlainText(report);
     }

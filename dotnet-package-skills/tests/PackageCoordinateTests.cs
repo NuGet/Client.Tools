@@ -39,7 +39,7 @@ public class PackageCoordinateTests
         // Guessing a version would copy skills describing a release the user does not use,
         // so the message has to point at the option that resolves versions properly.
         Assert.Contains("exact version", exception.Message);
-        Assert.Contains("--target", exception.Message);
+        Assert.Contains("--source", exception.Message);
     }
 
     [Theory]

@@ -251,7 +251,7 @@ public class SkillInstallServiceTests
 
         Assert.Contains("target resolution was unavailable", error.Message);
         Assert.Contains("Mockly", error.Message);
-        Assert.Contains("--target", error.Message);
+        Assert.Contains("--source", error.Message);
         Assert.Contains("ID@VERSION", error.Message);
         Assert.Empty(runner.Invocations);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
@@ -415,7 +415,7 @@ public class SkillInstallServiceTests
         Assert.Contains(target, error.Message);
         Assert.Contains("1.10.0", error.Message);
         Assert.Contains("1.11.0", error.Message);
-        Assert.Contains("Narrow --target", error.Message);
+        Assert.Contains("Narrow --source", error.Message);
         Assert.Contains("ID@VERSION", error.Message);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
     }
@@ -909,7 +909,7 @@ public class SkillInstallServiceTests
             Assert.DoesNotContain(packageFilter ? "--stale" : "--package", error.Message);
             Assert.DoesNotContain(path, error.Message);
             Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-            Assert.DoesNotContain("--target", error.Message);
+            Assert.DoesNotContain("--source", error.Message);
             Assert.DoesNotContain("--destination", error.Message);
         }
     }
@@ -991,7 +991,7 @@ public class SkillInstallServiceTests
         Assert.DoesNotContain("--stale", error.Message);
         Assert.DoesNotContain(path, error.Message);
         Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-        Assert.DoesNotContain("--target", error.Message);
+        Assert.DoesNotContain("--source", error.Message);
         Assert.DoesNotContain("--destination", error.Message);
         Assert.Equal(before, Snapshot(destination));
     }
@@ -1815,7 +1815,7 @@ public class SkillInstallServiceTests
         var error = Assert.Throws<PackageSkillsException>(() =>
             service.ReadReferences(target: null, temp.Path));
 
-        Assert.Contains("--target", error.Message);
+        Assert.Contains("--source", error.Message);
     }
 
     private static (string Path, string Contents)[] Snapshot(string root) =>

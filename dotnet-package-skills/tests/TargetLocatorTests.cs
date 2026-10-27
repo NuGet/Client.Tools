@@ -73,7 +73,7 @@ public class TargetLocatorTests
 
         var exception = Assert.Throws<PackageSkillsException>(() => TargetLocator.Detect(temp.Path));
 
-        Assert.Contains("--target", exception.Message);
+        Assert.Contains("--source", exception.Message);
     }
 
     [Fact]

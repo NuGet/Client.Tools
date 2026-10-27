@@ -27,7 +27,7 @@ public static class TargetLocator
 
         if (!File.Exists(path))
         {
-            throw new PackageSkillsException($"--target does not exist: {path}");
+            throw new PackageSkillsException($"--source does not exist: {path}");
         }
 
         var extension = Path.GetExtension(path);
@@ -35,7 +35,7 @@ public static class TargetLocator
             !ProjectExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
             throw new PackageSkillsException(
-                $"--target must be a solution or project file, but got '{Path.GetFileName(path)}'. " +
+                $"--source must be a solution or project file, but got '{Path.GetFileName(path)}'. " +
                 "Supported extensions: .sln, .slnx, .csproj, .fsproj, .vbproj.");
         }
 
@@ -70,7 +70,7 @@ public static class TargetLocator
 
         throw new PackageSkillsException(
             $"No solution or project found under {directory}. " +
-            "Pass one explicitly, for example: --target src/MyApp.sln");
+            "Pass one explicitly, for example: --source src/MyApp.sln");
     }
 
     private static (List<string> Files, List<string> Children) ReadDirectory(string directory, bool explicitRoot)
@@ -100,7 +100,7 @@ public static class TargetLocator
             if (explicitRoot)
             {
                 throw new PackageSkillsException(
-                    $"Could not read target directory '{directory}'. Check its permissions or pass a readable --target.",
+                    $"Could not read target directory '{directory}'. Check its permissions or pass a readable --source.",
                     error);
             }
 

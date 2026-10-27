@@ -20,7 +20,7 @@ Try your build against a real repository without installing it:
 
 ```powershell
 eng\common\dotnet.cmd artifacts\bin\DotnetPackageSkills\Release\net10.0\dotnet-package-skills.dll `
-  list --target C:\path\to\YourApp.sln
+  list --source C:\path\to\YourApp.sln
 ```
 
 The build creates an unsigned tool package under `artifacts\packages\Release\Shipping`.

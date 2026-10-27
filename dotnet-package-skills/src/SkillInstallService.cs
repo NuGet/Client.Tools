@@ -183,7 +183,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
             throw new PackageSkillsException(
                 $"Could not resolve {label} because target resolution was unavailable. " +
-                $"{error.Message} Pass --target to select a solution or project, or specify ID@VERSION.",
+                $"{error.Message} Pass --source to select a solution or project, or specify ID@VERSION.",
                 error);
         }
 
@@ -210,7 +210,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                 throw new PackageSkillsException(
                     $"Package '{package.Id}' resolves to more than one version in target '{target}': " +
                     $"{string.Join(", ", versions.Select(candidate => candidate.Version))}. " +
-                    "Narrow --target to a project that resolves one version, or specify ID@VERSION. " +
+                    "Narrow --source to a project that resolves one version, or specify ID@VERSION. " +
                     "No skills were changed.");
             }
 

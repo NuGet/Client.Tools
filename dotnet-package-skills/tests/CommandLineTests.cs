@@ -21,6 +21,58 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("install", "--source")]
+    [InlineData("install", "-s")]
+    [InlineData("list", "--source")]
+    [InlineData("list", "-s")]
+    [InlineData("uninstall", "--source")]
+    [InlineData("uninstall", "-s")]
+    public void All_commands_accept_source_options(string command, string option)
+    {
+        var args = new List<string> { command, option, "src/App.csproj" };
+        if (command == "uninstall") { args.Add("--stale"); }
+
+        Assert.Empty(CommandLineBuilder.Build().Parse([.. args]).Errors);
+    }
+
+    [Theory]
+    [InlineData("install", "--target")]
+    [InlineData("install", "-t")]
+    [InlineData("list", "--target")]
+    [InlineData("list", "-t")]
+    [InlineData("uninstall", "--target")]
+    [InlineData("uninstall", "-t")]
+    public void Old_target_options_are_not_compatibility_aliases(string command, string option)
+    {
+        var args = new List<string> { command, option, "src/App.csproj" };
+        if (command == "uninstall") { args.Add("--stale"); }
+
+        var result = CommandLineBuilder.Build().Parse([.. args]);
+
+        Assert.Contains(result.Errors, error =>
+            error.Message.Contains($"Unrecognized command or argument '{option}'", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("install")]
+    [InlineData("list")]
+    [InlineData("uninstall")]
+    public void Help_advertises_only_the_new_source_options(string command)
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        Assert.Equal(0, CommandLineBuilder.Invoke([command, "--help"], output, error));
+
+        Assert.Empty(error.ToString());
+        Assert.Contains("--source", output.ToString());
+        Assert.Contains("-s,", output.ToString());
+        Assert.Contains("directory to read package references from", output.ToString());
+        Assert.DoesNotContain("--target", output.ToString());
+        Assert.DoesNotContain("-t,", output.ToString());
+    }
+
+    [Theory]
     [InlineData("install", "--package")]
     [InlineData("install", "-p")]
     [InlineData("list", "--package")]
@@ -53,18 +105,20 @@ public class CommandLineTests
     [Theory]
     [InlineData("install")]
     [InlineData("list")]
-    public void Package_and_target_can_be_combined_for_bare_id_resolution(string command)
+    public void Package_and_source_can_be_combined_for_bare_id_resolution(string command)
     {
         Assert.Empty(CommandLineBuilder.Build().Parse(
-            [command, "-p", "Mockly", "-t", "src/App.csproj"]).Errors);
+            [command, "-p", "Mockly", "-s", "src/App.csproj"]).Errors);
         Assert.Empty(CommandLineBuilder.Build().Parse(
-            [command, "--package", "Mockly@1.0.0", "--target", "missing.sln"]).Errors);
+            [command, "--package", "Mockly@1.0.0", "--source", "missing.sln"]).Errors);
     }
 
     [Theory]
-    [InlineData("install")]
-    [InlineData("list")]
-    public void Package_and_target_flow_through_the_command_action(string command)
+    [InlineData("install", "--source")]
+    [InlineData("install", "-s")]
+    [InlineData("list", "--source")]
+    [InlineData("list", "-s")]
+    public void Package_and_source_flow_through_the_command_action(string command, string option)
     {
         using var temp = new TempDirectory();
         var target = temp.CreateFile("src/App.csproj");
@@ -79,7 +133,7 @@ public class CommandLineTests
             [
                 command,
                 "-p", "Mockly",
-                "-t", target,
+                option, target,
                 "-d", destination,
                 "--global-packages", temp.Combine("packages"),
             ],
@@ -138,8 +192,8 @@ public class CommandLineTests
         Assert.Empty(error.ToString());
         Assert.Contains("ID[@VERSION]", output.ToString());
         Assert.Contains("manifest", output.ToString());
-        Assert.Contains("--target", output.ToString());
-        Assert.Contains("auto-detected target", output.ToString());
+        Assert.Contains("--source", output.ToString());
+        Assert.Contains("auto-detected solution or project", output.ToString());
         Assert.Contains("NuGet global-packages directory", output.ToString());
         Assert.Contains("invocation directory", output.ToString());
         Assert.DoesNotContain("global packages folder", output.ToString());
@@ -253,9 +307,9 @@ public class CommandLineTests
     public void Uninstall_stale_accepts_a_target_and_every_other_uninstall_option_but_a_package()
     {
         Assert.Empty(CommandLineBuilder.Build().Parse(
-            ["uninstall", "--stale", "--target", "App.sln", "--dry-run", "-i", "-d", ".claude/skills"])
+            ["uninstall", "--stale", "--source", "App.sln", "--dry-run", "-i", "-d", ".claude/skills"])
             .Errors);
-        Assert.Empty(CommandLineBuilder.Build().Parse(["uninstall", "--stale", "-t", "src"]).Errors);
+        Assert.Empty(CommandLineBuilder.Build().Parse(["uninstall", "--stale", "-s", "src"]).Errors);
         Assert.Empty(CommandLineBuilder.Build().Parse(["uninstall", "--stale"]).Errors);
     }
 
@@ -275,8 +329,8 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--target")]
-    [InlineData("-t")]
+    [InlineData("--source")]
+    [InlineData("-s")]
     public void Uninstall_target_needs_stale(string option)
     {
         var result = CommandLineBuilder.Build().Parse(["uninstall", option, "App.sln"]);
@@ -284,9 +338,9 @@ public class CommandLineTests
             ["uninstall", "--stale", "false", option, "App.sln"]);
 
         Assert.Contains(result.Errors, error =>
-            error.Message.Contains("--target can be used with uninstall only together with --stale", StringComparison.Ordinal));
+            error.Message.Contains("--source can be used with uninstall only together with --stale", StringComparison.Ordinal));
         Assert.Contains(explicitFalse.Errors, error =>
-            error.Message.Contains("--target can be used with uninstall only together with --stale", StringComparison.Ordinal));
+            error.Message.Contains("--source can be used with uninstall only together with --stale", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -307,14 +361,14 @@ public class CommandLineTests
         using var error = new StringWriter();
         var args = new List<string>
         {
-            "uninstall", "--stale", "false", "--target", temp.Combine("Missing.sln"), "--destination", destination,
+            "uninstall", "--stale", "false", "--source", temp.Combine("Missing.sln"), "--destination", destination,
         };
         if (dryRun) { args.Add("--dry-run"); }
 
         var exitCode = CommandLineBuilder.Invoke([.. args], runner, output, error);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("--target can be used with uninstall only together with --stale", error.ToString());
+        Assert.Contains("--source can be used with uninstall only together with --stale", error.ToString());
         Assert.Equal("installed guidance", File.ReadAllText(skill));
         Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
         Assert.Empty(runner.Invocations);
@@ -337,7 +391,7 @@ public class CommandLineTests
 
         var exitCode = CommandLineBuilder.Invoke(
             [
-                "uninstall", "--stale", "false", "--target", temp.Combine("Missing.sln"),
+                "uninstall", "--stale", "false", "--source", temp.Combine("Missing.sln"),
                 "--destination", destination, "--interactive",
             ],
             runner,
@@ -345,7 +399,7 @@ public class CommandLineTests
             error);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("--target can be used with uninstall only together with --stale", error.ToString());
+        Assert.Contains("--source can be used with uninstall only together with --stale", error.ToString());
         Assert.Equal("installed guidance", File.ReadAllText(skill));
         Assert.Equal(beforeManifest, File.ReadAllBytes(manifestPath));
         Assert.Empty(runner.Invocations);
@@ -372,7 +426,7 @@ public class CommandLineTests
         using var error = new StringWriter();
         var args = new List<string>
         {
-            "uninstall", "--stale", "--target", target, "--destination", destination,
+            "uninstall", "--stale", "--source", target, "--destination", destination,
         };
         if (dryRun) { args.Add("--dry-run"); }
         if (interactive) { args.Add("--interactive"); }
@@ -411,7 +465,7 @@ public class CommandLineTests
         using var error = new StringWriter();
         var args = new List<string>
         {
-            "uninstall", "--stale", "--target", target, "--destination", destination,
+            "uninstall", "--stale", "--source", target, "--destination", destination,
         };
         if (dryRun) { args.Add("--dry-run"); }
         if (interactive) { args.Add("--interactive"); }
@@ -615,7 +669,7 @@ public class CommandLineTests
         Assert.Contains(
             "'1.*' is a floating version or a version range, and this tool needs an exact version.\n" +
             "Write it out, for example --package Mockly@1.10.0.\n" +
-            "To let restore choose the version, point at a project or solution with --target instead.",
+            "To let restore choose the version, point at a project or solution with --source instead.",
             error.ToString().ReplaceLineEndings("\n"));
         Assert.DoesNotContain('\u001b', error.ToString());
         Assert.DoesNotContain("SECRET", error.ToString());
@@ -692,7 +746,7 @@ public class CommandLineTests
         };
         if (command != "uninstall")
         {
-            arguments.AddRange(["--target", target, "--global-packages", temp.Combine("packages")]);
+            arguments.AddRange(["--source", target, "--global-packages", temp.Combine("packages")]);
         }
 
         using var output = new StringWriter();

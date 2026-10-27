@@ -13,7 +13,7 @@ public sealed record PackageCoordinate(string Id, string? Version = null)
     /// <remarks>
     /// Version ranges and floating versions are refused rather than resolved. Resolving one
     /// means picking a version, and the only correct answer to "which version" comes from a
-    /// project's restore — which is what <c>--target</c> is for. Guessing here would copy
+    /// project's restore — which is what <c>--source</c> is for. Guessing here would copy
     /// skills that describe a version the user does not actually reference.
     /// An omitted version is resolved from the destination manifest first, then from a target,
     /// never from package directories.
@@ -26,7 +26,7 @@ public sealed record PackageCoordinate(string Id, string? Version = null)
         {
             throw new PackageSkillsException(
                 "--package needs a package ID or Id@Version, for example Mockly@1.10.0. " +
-                "A bare ID uses the destination manifest first, then --target or an auto-detected target.");
+                "A bare ID uses the destination manifest first, then --source or an auto-detected solution or project.");
         }
 
         var separator = input.IndexOf(Separator);
@@ -63,7 +63,7 @@ public sealed record PackageCoordinate(string Id, string? Version = null)
                 $"""
                  '{version}' is a floating version or a version range, and this tool needs an exact version.
                  Write it out, for example --package {id}@1.10.0.
-                 To let restore choose the version, point at a project or solution with --target instead.
+                 To let restore choose the version, point at a project or solution with --source instead.
                  """);
         }
 
