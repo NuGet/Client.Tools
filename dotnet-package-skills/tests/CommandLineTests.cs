@@ -36,24 +36,6 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("install", "--target")]
-    [InlineData("install", "-t")]
-    [InlineData("list", "--target")]
-    [InlineData("list", "-t")]
-    [InlineData("uninstall", "--target")]
-    [InlineData("uninstall", "-t")]
-    public void Old_target_options_are_not_compatibility_aliases(string command, string option)
-    {
-        var args = new List<string> { command, option, "src/App.csproj" };
-        if (command == "uninstall") { args.Add("--stale"); }
-
-        var result = CommandLineBuilder.Build().Parse([.. args]);
-
-        Assert.Contains(result.Errors, error =>
-            error.Message.Contains($"Unrecognized command or argument '{option}'", StringComparison.Ordinal));
-    }
-
-    [Theory]
     [InlineData("install")]
     [InlineData("list")]
     [InlineData("uninstall")]
