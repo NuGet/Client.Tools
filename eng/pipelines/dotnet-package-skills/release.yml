@@ -61,9 +61,11 @@ extends:
               Resume to publish the selected artifact unchanged.
             onTimeout: reject
 
-      - job: Publish
+      - job: PushNuGetPackagesToNuGetOrgJob
+        displayName: Push NuGet packages to nuget.org
         dependsOn: Approve
         condition: succeeded()
+        timeoutInMinutes: 15
         templateContext:
           type: releaseJob
           isProduction: true
@@ -72,14 +74,13 @@ extends:
             pipeline: official
             artifactName: dotnet-package-skills-packages
             targetPath: $(ReleasePackageRoot)
-        steps:
-        - checkout: none
-        - task: 1ES.PublishNuGet@1
-          displayName: Publish to nuget.org
-          inputs:
-            useDotNetTask: false
+            itemPattern: dotnet-package-skills.*.nupkg
+          outputs:
+          - output: nuget
+            displayName: Push packages to nuget.org
             packagesToPush: '$(ReleasePackageRoot)\dotnet-package-skills.*.nupkg;!$(ReleasePackageRoot)\*.symbols.nupkg'
             packageParentPath: $(ReleasePackageRoot)
             nuGetFeedType: external
-            publishPackageMetadata: true
             publishFeedCredentials: ${{ parameters.NuGetOrgServiceConnection }}
+        steps:
+        - checkout: none

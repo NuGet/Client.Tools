@@ -1,6 +1,6 @@
 # Release dotnet-package-skills to nuget.org
 
-`release.yml` is manual-only: approval followed by one 1ES publishing task.
+`release.yml` is manual-only: approval followed by one 1ES NuGet publishing output.
 It consumes the selected official build's `dotnet-package-skills-packages` artifact
 without rebuilding, repacking, or signing it again.
 
@@ -25,8 +25,9 @@ without rebuilding, repacking, or signing it again.
 3. An independent approver reviews the selected build, package version, signing results,
    and target connection before resuming. Self-approval is disabled; timeout rejects
    after 24 hours. These source/package reviews are manual, not custom YAML validations.
-4. The production publish job downloads that same immutable artifact through 1ES and
-   pushes only `dotnet-package-skills.*.nupkg`, excluding symbol packages, to the
+4. `PushNuGetPackagesToNuGetOrgJob` downloads the selected packages through 1ES artifact
+   inputs and publishes them using `templateContext.outputs` with `output: nuget`.
+   It pushes only `dotnet-package-skills.*.nupkg`, excluding symbol packages, to the
    configured external feed. It does not suppress duplicate-version failures.
 
 Official builds normally produce beta versions; `DotnetPackageSkillsReleaseBuild=true`
