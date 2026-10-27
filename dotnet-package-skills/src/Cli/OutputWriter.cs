@@ -80,7 +80,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
 
     private void WriteContext(InstallResult result, bool copied)
     {
-        output.WriteLine($"{(copied ? "Target" : "Source")}:      {TerminalText.Sanitize(result.Target ?? "(packages named on the command line)")}");
+        output.WriteLine($"Source:      {TerminalText.Sanitize(result.Target ?? "(packages named on the command line)")}");
         output.WriteLine($"NuGet global-packages directory: {TerminalText.Sanitize(result.GlobalPackagesFolder)}");
         if (copied)
         {
@@ -154,7 +154,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
     {
         if (target is not null)
         {
-            output.WriteLine($"Target:      {TerminalText.Sanitize(target)}");
+            output.WriteLine($"Source:      {TerminalText.Sanitize(target)}");
         }
 
         output.WriteLine($"Destination: {TerminalText.Sanitize(destination)}");

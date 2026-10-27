@@ -55,7 +55,7 @@ The command reads only the direct package references of your solution or project
 
 This article uses these terms:
 
-- **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. The `list` report shows it after `Source:`; `install` and `uninstall --stale` reports use `Target:`.
+- **Source**: the solution or project whose package references the command reads, selected with `--target`. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. Reports show it after `Source:`.
 - **NuGet global-packages directory**: the NuGet package storage directory from which `install` and `list` read package contents. Reports show it after `NuGet global-packages directory:`.
 - **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. `install` and `uninstall` reports show it after `Destination:`; `list` omits it because nothing is copied.
 - **Tracked skill**: a skill that the command installed, as recorded in the [manifest](#manifest-file) in the skills folder. The command updates and removes only tracked skills, never folders that you created.
@@ -85,7 +85,7 @@ To read skills from specific packages instead of a target, specify `--package <I
 
 ### Install and update skills
 
-`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. Its report starts with `Target:`, `NuGet global-packages directory:`, and `Destination:`, followed by the package count and the skills that were copied:
+`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. Its report starts with `Source:`, `NuGet global-packages directory:`, and `Destination:`, followed by the package count and the skills that were copied:
 
 ```output
 Copied 4 skills:
@@ -144,7 +144,7 @@ To remove only one package's skills, add `--package <ID>`, or add `--package <ID
 dotnet-package-skills uninstall --stale
 ```
 
-This command removes every stale skill. Run `install` first, so that the skills of upgraded packages are updated instead of removed. The report looks like the `uninstall` report, with a `Target:` line first. Add `--dry-run` to preview the removal, or `--interactive` to choose among the stale skills.
+This command removes every stale skill. Run `install` first, so that the skills of upgraded packages are updated instead of removed. The report looks like the `uninstall` report, with a `Source:` line first. Add `--dry-run` to preview the removal, or `--interactive` to choose among the stale skills.
 
 `--stale` needs a target, which the command finds the same way as for `install`, or which you specify with `--target`.
 

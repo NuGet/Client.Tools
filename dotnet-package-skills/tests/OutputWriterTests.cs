@@ -139,7 +139,7 @@ public class OutputWriterTests
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
         var report = output.ToString();
-        Assert.Contains($"Target:      {TerminalText.Sanitize(path)}", report);
+        Assert.Contains($"Source:      {TerminalText.Sanitize(path)}", report);
         Assert.Contains($"Destination: {TerminalText.Sanitize(path)}", report);
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", report);
         Assert.DoesNotContain("dotnet-package-skills uninstall", report);
@@ -243,23 +243,30 @@ public class OutputWriterTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Install_context_keeps_the_target_and_destination_even_for_a_dry_run(bool dryRun)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Install_context_names_the_source_and_destination_even_for_a_dry_run(bool explicitPackages, bool dryRun)
     {
         using var output = new StringWriter();
-        var result = ResultWithCollision() with { DryRun = dryRun };
+        var result = ResultWithCollision() with
+        {
+            Target = explicitPackages ? null : @"C:\repo\App.slnx",
+            DryRun = dryRun,
+        };
 
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
+        var source = explicitPackages ? "(packages named on the command line)" : result.Target;
         Assert.Equal(
             [
-                $"Target:      {result.Target}",
+                $"Source:      {source}",
                 $"NuGet global-packages directory: {result.GlobalPackagesFolder}",
                 $"Destination: {result.Destination}",
             ],
             output.ToString().Split(Environment.NewLine).Take(3));
-        Assert.DoesNotContain("Source:", output.ToString());
+        Assert.DoesNotContain("Target:", output.ToString());
     }
 
     [Fact]
@@ -368,7 +375,7 @@ public class OutputWriterTests
     [Theory]
     [InlineData(false, "Removed 1 skill:")]
     [InlineData(true, "Would remove 1 skill:")]
-    public void A_stale_uninstall_report_names_the_target_it_compared_against(bool dryRun, string heading)
+    public void A_stale_uninstall_report_names_the_source_it_compared_against(bool dryRun, string heading)
     {
         using var output = new StringWriter();
 
@@ -378,7 +385,7 @@ public class OutputWriterTests
 
         Assert.Equal(
             [
-                @"Target:      C:\repo\App.sln",
+                @"Source:      C:\repo\App.sln",
                 @"Destination: C:\repo\.agents\skills",
                 string.Empty,
                 heading,
@@ -396,6 +403,8 @@ public class OutputWriterTests
         new OutputWriter(output).WriteUninstallReport([], @"C:\repo\.agents\skills", dryRun: false, target: @"C:\repo\App.sln");
 
         Assert.Contains("Nothing to remove. No stale skills were found.", output.ToString());
+        Assert.Contains(@"Source:      C:\repo\App.sln", output.ToString());
+        Assert.DoesNotContain("Target:", output.ToString());
         Assert.DoesNotContain("No skills installed by this tool", output.ToString());
     }
 

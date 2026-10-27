@@ -127,7 +127,7 @@ Use uninstall with --stale to remove skills that no longer match the project.
 ```
 
 The tool gives removal-option guidance, not a paste-ready command with repository paths.
-Use the reported Target and Destination context to choose the project and skills folder for
+Use the reported Source and Destination context to choose the project and skills folder for
 your uninstall.
 
 A package reference can disappear for a moment, for example halfway through a refactor. Because
