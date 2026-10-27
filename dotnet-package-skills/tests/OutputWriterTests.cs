@@ -212,6 +212,56 @@ public class OutputWriterTests
         Assert.DoesNotContain("Would copy", report);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void List_context_names_the_source_without_a_destination(bool explicitPackages, bool dryRun)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with
+        {
+            Target = explicitPackages ? null : @"C:\repo\App.slnx",
+            DryRun = dryRun,
+        };
+
+        new OutputWriter(output).WriteInstallReport(result, copied: false);
+
+        var report = output.ToString();
+        var source = explicitPackages ? "(packages named on the command line)" : result.Target;
+        Assert.Equal(
+            [
+                $"Source:      {source}",
+                $"NuGet global-packages directory: {result.GlobalPackagesFolder}",
+                $"Scanned {result.PackagesScanned} packages ({(explicitPackages ? "named explicitly" : "direct")}).",
+                string.Empty,
+            ],
+            report.Split(Environment.NewLine).Take(4));
+        Assert.DoesNotContain("Target:", report);
+        Assert.DoesNotContain("Destination:", report);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Install_context_keeps_the_target_and_destination_even_for_a_dry_run(bool dryRun)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with { DryRun = dryRun };
+
+        new OutputWriter(output).WriteInstallReport(result, copied: true);
+
+        Assert.Equal(
+            [
+                $"Target:      {result.Target}",
+                $"NuGet global-packages directory: {result.GlobalPackagesFolder}",
+                $"Destination: {result.Destination}",
+            ],
+            output.ToString().Split(Environment.NewLine).Take(3));
+        Assert.DoesNotContain("Source:", output.ToString());
+    }
+
     [Fact]
     public void An_install_dry_run_still_says_what_it_would_copy()
     {

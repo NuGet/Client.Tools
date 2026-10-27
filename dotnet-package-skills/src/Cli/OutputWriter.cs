@@ -11,7 +11,7 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
     /// </param>
     public void WriteInstallReport(InstallResult result, bool copied)
     {
-        WriteContext(result);
+        WriteContext(result, copied);
 
         var verb = copied
             ? result.DryRun ? "Would copy" : "Copied"
@@ -78,11 +78,14 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
         }
     }
 
-    private void WriteContext(InstallResult result)
+    private void WriteContext(InstallResult result, bool copied)
     {
-        output.WriteLine($"Target:      {TerminalText.Sanitize(result.Target ?? "(packages named on the command line)")}");
+        output.WriteLine($"{(copied ? "Target" : "Source")}:      {TerminalText.Sanitize(result.Target ?? "(packages named on the command line)")}");
         output.WriteLine($"NuGet global-packages directory: {TerminalText.Sanitize(result.GlobalPackagesFolder)}");
-        output.WriteLine($"Destination: {TerminalText.Sanitize(result.Destination)}");
+        if (copied)
+        {
+            output.WriteLine($"Destination: {TerminalText.Sanitize(result.Destination)}");
+        }
 
         var scope = result.Target is null ? "named explicitly" : "direct";
 

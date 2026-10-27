@@ -55,9 +55,9 @@ The command reads only the direct package references of your solution or project
 
 This article uses these terms:
 
-- **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. Reports show the target after `Target:`.
+- **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. The `list` report shows it after `Source:`; `install` and `uninstall --stale` reports use `Target:`.
 - **NuGet global-packages directory**: the NuGet package storage directory from which `install` and `list` read package contents. Reports show it after `NuGet global-packages directory:`.
-- **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. Reports show it after `Destination:`.
+- **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. `install` and `uninstall` reports show it after `Destination:`; `list` omits it because nothing is copied.
 - **Tracked skill**: a skill that the command installed, as recorded in the [manifest](#manifest-file) in the skills folder. The command updates and removes only tracked skills, never folders that you created.
 - **Stale skill**: a tracked skill whose package the target no longer references at the version that the skill came from.
 
@@ -66,9 +66,8 @@ This article uses these terms:
 `dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
 
 ```output
-Target:      C:\src\MyApp\MyApp.slnx
+Source:      C:\src\MyApp\MyApp.slnx
 NuGet global-packages directory: C:\packages
-Destination: C:\src\MyApp\.agents\skills
 Scanned 2 packages (direct).
 
 Found 4 skills:
@@ -78,7 +77,7 @@ Found 4 skills:
   fabrikam.testing-fixtures (Fabrikam.Testing 1.4.0)
 ```
 
-The `NuGet global-packages directory` value is where skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder for package contents, but it does read the [manifest](#manifest-file) there when a bare `--package <ID>` needs its tracked version.
+The `Source` value identifies the solution or project whose package references are read, and `NuGet global-packages directory` is where the skill files are read from. `list` omits the skills folder from its report because it doesn't copy anything there. It still reads the [manifest](#manifest-file) in that folder when a bare `--package <ID>` needs its tracked version; use `--destination` to select a different manifest location.
 
 Restore the target before you run the command. The command doesn't run `dotnet restore` itself, although with the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global-packages directory, `list` skips the package and `install` stops.
 
@@ -86,7 +85,7 @@ To read skills from specific packages instead of a target, specify `--package <I
 
 ### Install and update skills
 
-`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. After the same first lines as the `list` report, the report lists the skills that were copied:
+`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. Its report starts with `Target:`, `NuGet global-packages directory:`, and `Destination:`, followed by the package count and the skills that were copied:
 
 ```output
 Copied 4 skills:
