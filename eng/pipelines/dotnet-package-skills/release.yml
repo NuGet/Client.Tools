@@ -65,7 +65,6 @@ extends:
         displayName: Push NuGet packages to nuget.org
         dependsOn: Approve
         condition: succeeded()
-        timeoutInMinutes: 15
         templateContext:
           type: releaseJob
           isProduction: true
