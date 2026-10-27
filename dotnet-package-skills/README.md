@@ -73,7 +73,7 @@ without regard to case. For each bare ID, the tool first uses the exact version 
 selected destination's `.dotnet-package-skills.json`. Use `--destination` to select a different
 manifest. If that valid manifest does not track the ID, the tool resolves a target: the one from
 `--target`, or the solution or project it auto-detects under the current directory. It runs
-`dotnet list <target> package --format json` and uses the package's resolved direct version.
+`dotnet list <target> package --no-restore --format json` and uses the package's resolved direct version.
 Repeated appearances at the same normalized version across projects are one match. Different
 resolved versions are ambiguous: narrow `--target` to one project, or specify `ID@VERSION`.
 
@@ -502,11 +502,10 @@ within each stage. It never enters `bin`, `obj`, `.git`, `node_modules`, or `art
 of letter case. It skips inaccessible children and directory links. An explicitly named target
 directory can still be a link, but an unreadable requested directory produces an error.
 
-1. `dotnet list <target> package --format json` finds the resolved direct packages. The tool
-   never restores a project on its own. The .NET 10 SDK restores the project during this step,
-   when it needs to. An earlier SDK instead says that the target needs to be restored first. When
-   this step fails, the tool shows what it reported, so you can restore or fix the target and run
-   the tool again.
+1. `dotnet list <target> package --no-restore --format json` finds the resolved direct packages
+   without restoring the target, including during a dry run. Restore the target before running
+   the tool. When this step fails, the tool shows what it reported, so you can restore or fix
+   the target and run the tool again.
 2. `dotnet nuget locals global-packages --list` finds where restore extracted those packages.
    `NUGET_PACKAGES` and `--global-packages` both take precedence over this step, in that order.
 3. `install` stops without changing anything when a package resolves to more than one version, or
@@ -590,10 +589,9 @@ copies, so you can review them. Treat a new skill the way you would treat any ne
 skills.
 
 **"'dotnet list ... package' failed"** The tool reads the target's packages with `dotnet list
-package`, and it shows what that command reported. For example, a restore may have failed, or an
-earlier SDK may say that the target needs restoring. The tool never restores a project on its
-own. Resolve what the tool reports, for example by running `dotnet restore`, and run the tool
-again.
+package --no-restore`, and it shows what that command reported. For example, the target may need
+restoring. The tool never restores a project. Resolve what the tool reports, for example by
+running `dotnet restore`, and run the tool again.
 
 **"resolved packages are missing from"** the NuGet global-packages directory. Run `dotnet restore`
 for the target and try again. This message also appears when your packages come from a NuGet *fallback folder*,

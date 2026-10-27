@@ -63,7 +63,7 @@ This article uses these terms:
 
 ### List available skills
 
-`dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
+`dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package --no-restore`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
 
 ```output
 Target:      C:\src\MyApp\MyApp.slnx
@@ -80,7 +80,7 @@ Found 4 skills:
 
 The `NuGet global-packages directory` value is where skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder for package contents, but it does read the [manifest](#manifest-file) there when a bare `--package <ID>` needs its tracked version.
 
-Restore the target before you run the command. The command doesn't run `dotnet restore` itself, although with the .NET 10 SDK, `dotnet list package` restores the target when it needs to, even during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global-packages directory, `list` skips the package and `install` stops.
+Restore the target before you run the command. The command passes `--no-restore` to `dotnet list package` so that it never restores the target, including during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global-packages directory, `list` skips the package and `install` stops.
 
 To read skills from specific packages instead of a target, specify `--package <ID>` or `--package <ID>@<VERSION>`. A bare ID resolves only to the package version tracked in the destination's `.dotnet-package-skills.json` manifest. If the package isn't tracked there, include an exact version; the command doesn't choose a version from the NuGet global-packages directory because that directory can contain multiple versions. The resolved package must already be in the NuGet global-packages directory, because the command doesn't download it. If the package isn't there, the command finds no skills in it and doesn't warn you.
 
@@ -261,7 +261,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`--dry-run`**
 
-  For `install` and `uninstall`, reports the planned changes without copying or removing skills or writing the manifest. With the .NET 10 SDK, `dotnet list package` can still restore the target.
+  For `install` and `uninstall`, reports the planned changes without copying or removing skills or writing the manifest. Package listing uses `--no-restore`, so it doesn't restore the target either.
 
 - **`--global-packages <PATH>`**
 
