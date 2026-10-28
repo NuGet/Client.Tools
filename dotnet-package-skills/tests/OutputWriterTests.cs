@@ -139,11 +139,11 @@ public class OutputWriterTests
         new OutputWriter(output).WriteInstallReport(result, copied: true);
 
         var report = output.ToString();
-        Assert.Contains($"Target:      {TerminalText.Sanitize(path)}", report);
+        Assert.Contains($"Source:      {TerminalText.Sanitize(path)}", report);
         Assert.Contains($"Destination: {TerminalText.Sanitize(path)}", report);
         Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", report);
         Assert.DoesNotContain("dotnet-package-skills uninstall", report);
-        Assert.DoesNotContain("--target", report);
+        Assert.DoesNotContain("--source", report);
         Assert.DoesNotContain("--destination", report);
         AssertPlainText(report);
     }
@@ -210,6 +210,63 @@ public class OutputWriterTests
         var report = output.ToString();
         Assert.Contains("Found 1 skill:", report);
         Assert.DoesNotContain("Would copy", report);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void List_context_names_the_source_without_a_destination(bool explicitPackages, bool dryRun)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with
+        {
+            Target = explicitPackages ? null : @"C:\repo\App.slnx",
+            DryRun = dryRun,
+        };
+
+        new OutputWriter(output).WriteInstallReport(result, copied: false);
+
+        var report = output.ToString();
+        var source = explicitPackages ? "(packages named on the command line)" : result.Target;
+        Assert.Equal(
+            [
+                $"Source:      {source}",
+                $"NuGet global-packages directory: {result.GlobalPackagesFolder}",
+                $"Scanned {result.PackagesScanned} packages ({(explicitPackages ? "named explicitly" : "direct")}).",
+                string.Empty,
+            ],
+            report.Split(Environment.NewLine).Take(4));
+        Assert.DoesNotContain("Target:", report);
+        Assert.DoesNotContain("Destination:", report);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Install_context_names_the_source_and_destination_even_for_a_dry_run(bool explicitPackages, bool dryRun)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with
+        {
+            Target = explicitPackages ? null : @"C:\repo\App.slnx",
+            DryRun = dryRun,
+        };
+
+        new OutputWriter(output).WriteInstallReport(result, copied: true);
+
+        var source = explicitPackages ? "(packages named on the command line)" : result.Target;
+        Assert.Equal(
+            [
+                $"Source:      {source}",
+                $"NuGet global-packages directory: {result.GlobalPackagesFolder}",
+                $"Destination: {result.Destination}",
+            ],
+            output.ToString().Split(Environment.NewLine).Take(3));
+        Assert.DoesNotContain("Target:", output.ToString());
     }
 
     [Fact]
@@ -318,7 +375,7 @@ public class OutputWriterTests
     [Theory]
     [InlineData(false, "Removed 1 skill:")]
     [InlineData(true, "Would remove 1 skill:")]
-    public void A_stale_uninstall_report_names_the_target_it_compared_against(bool dryRun, string heading)
+    public void A_stale_uninstall_report_names_the_source_it_compared_against(bool dryRun, string heading)
     {
         using var output = new StringWriter();
 
@@ -328,7 +385,7 @@ public class OutputWriterTests
 
         Assert.Equal(
             [
-                @"Target:      C:\repo\App.sln",
+                @"Source:      C:\repo\App.sln",
                 @"Destination: C:\repo\.agents\skills",
                 string.Empty,
                 heading,
@@ -346,6 +403,8 @@ public class OutputWriterTests
         new OutputWriter(output).WriteUninstallReport([], @"C:\repo\.agents\skills", dryRun: false, target: @"C:\repo\App.sln");
 
         Assert.Contains("Nothing to remove. No stale skills were found.", output.ToString());
+        Assert.Contains(@"Source:      C:\repo\App.sln", output.ToString());
+        Assert.DoesNotContain("Target:", output.ToString());
         Assert.DoesNotContain("No skills installed by this tool", output.ToString());
     }
 

@@ -62,29 +62,29 @@ the destination manifest and a target.
 
 ```bash
 dotnet-package-skills install                              # auto-detect solution or project
-dotnet-package-skills install --target src/MyApp.slnx      # a specific solution or project
+dotnet-package-skills install --source src/MyApp.slnx      # a specific solution or project
 dotnet-package-skills install --package Mockly@1.10.0      # exact packages, no project needed
 dotnet-package-skills list --package Mockly                # manifest version, then auto-detected target
-dotnet-package-skills install -p Mockly -t src/MyApp.slnx  # manifest version, then this target
+dotnet-package-skills install -p Mockly -s src/MyApp.slnx  # manifest version, then this source
 ```
 
 `-p` and `--package` accept `ID` or `ID@VERSION` for install and list. Package IDs are matched
 without regard to case. For each bare ID, the tool first uses the exact version recorded in the
 selected destination's `.dotnet-package-skills.json`. Use `--destination` to select a different
 manifest. If that valid manifest does not track the ID, the tool resolves a target: the one from
-`--target`, or the solution or project it auto-detects under the current directory. It runs
-`dotnet list <target> package --no-restore --format json` and uses the package's resolved direct version.
+`--source`, or the solution or project it auto-detects under the current directory. It runs
+`dotnet list <target> package --format json` and uses the package's resolved direct version.
 Repeated appearances at the same normalized version across projects are one match. Different
-resolved versions are ambiguous: narrow `--target` to one project, or specify `ID@VERSION`.
+resolved versions are ambiguous: narrow `--source` to one project, or specify `ID@VERSION`.
 
 `--package` is repeatable. A supplied version must be **exact**. The tool refuses `Mockly@1.*`
 and `Mockly@[1.0,2.0)`. Resolving a range means picking one version from it, and the only correct
-answer to "which version" comes from a project's own restore step. `--target` gives you that
+answer to "which version" comes from a project's own restore step. `--source` gives you that
 answer. If the tool guessed a version instead, it could copy skills that describe a release you
 do not actually reference.
 
-`--target` and `--package` can combine. The target is consulted only for bare IDs that the
-manifest does not track. Manifest versions stay authoritative even when `--target` is present.
+`--source` and `--package` can combine. The target is consulted only for bare IDs that the
+manifest does not track. Manifest versions stay authoritative even when `--source` is present.
 An explicit `ID@VERSION` does not read the manifest or target to resolve its version. If every
 selector is explicit or manifest-resolved, the tool does not run `dotnet list package`.
 The tool never chooses a version by scanning the NuGet global-packages directory.
@@ -127,7 +127,7 @@ Use uninstall with --stale to remove skills that no longer match the project.
 ```
 
 The tool gives removal-option guidance, not a paste-ready command with repository paths.
-Use the reported Target and Destination context to choose the project and skills folder for
+Use the reported Source and Destination context to choose the project and skills folder for
 your uninstall.
 
 A package reference can disappear for a moment, for example halfway through a refactor. Because
@@ -142,7 +142,7 @@ dotnet-package-skills uninstall --stale
 ```
 
 `--stale` reads the project's package references, so it needs a solution or project. The tool
-uses the one in the current directory, or the one you pass with `--target`. A skill that you
+uses the one in the current directory, or the one you pass with `--source`. A skill that you
 added with `install --package`, for a package outside the project, also counts as stale.
 
 ### Choose which skills to install
@@ -155,7 +155,7 @@ dotnet-package-skills install --interactive                          # everythin
 dotnet-package-skills install --package Mockly@1.10.0 --interactive  # just one package's skills
 ```
 
-`--interactive` combines with `--target` and `--package`. You can narrow the list to a single
+`--interactive` combines with `--source` and `--package`. You can narrow the list to a single
 package first, and then pick among the skills that package ships. Use this method when one
 package bundles a dozen skills together.
 
@@ -306,16 +306,16 @@ combine.
 
 | Option | Applies to | Description |
 | --- | --- | --- |
-| `-t, --target <PATH>` | install, list | Solution or project to inspect, or to resolve bare package IDs that the manifest does not track. Defaults to searching the current directory. |
-| `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID uses the destination manifest first, then `--target` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
+| `-s, --source <PATH>` | install, list | Solution, project, or directory to read package references from, including to resolve bare package IDs that the manifest does not track. Defaults to searching the current directory. |
+| `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID uses the destination manifest first, then `--source` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
 | `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
 | `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
 | `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. A relative path is resolved from the invocation directory. |
-| `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--target` or `--package`. |
+| `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--source` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
 | `-p, --package <ID[@VERSION]>` | uninstall | Removes only this package's skills. Removes whichever version is installed, or only the version you name. |
 | `--stale` | uninstall | Removes only stale skills: a skill whose package the target no longer references, or whose package the target references at a different version. Needs a solution or project. Cannot combine with `--package`. |
-| `-t, --target <PATH>` | uninstall | With `--stale`, the solution or project to compare against. Defaults to searching the current directory. |
+| `-s, --source <PATH>` | uninstall | With `--stale`, the solution, project, or directory to read package references from for comparison. Defaults to searching the current directory. |
 | `--dry-run` | install, uninstall | Reports what would change, and writes nothing. |
 
 ### Target another agent's folder
@@ -519,7 +519,7 @@ directory can still be a link, but an unreadable requested directory produces an
 
 With `--package`, the tool first resolves each selector. Explicit versions need neither the
 manifest nor step 1. Bare IDs use a valid manifest entry when one exists. Only remaining bare IDs
-run step 1, against `--target` or an auto-detected target, and only those selected packages
+run step 1, against `--source` or an auto-detected target, and only those selected packages
 continue through the later steps.
 
 `uninstall --stale` needs only step 1. It compares the manifest with the target's package
@@ -600,14 +600,14 @@ folder.
 
 **"is not a direct package resolved for target"** The valid destination manifest did not track
 the bare package ID, and the target did not resolve it as a direct package. Check the named
-target, choose another one with `--target`, or specify `ID@VERSION`.
+target, choose another one with `--source`, or specify `ID@VERSION`.
 
 **"target resolution was unavailable"** The valid destination manifest did not track the bare
-package ID, and the tool could not auto-detect a solution or project. Pass one with `--target`,
+package ID, and the tool could not auto-detect a solution or project. Pass one with `--source`,
 or specify `ID@VERSION`.
 
 **"resolves to more than one version in target"** A solution resolves the bare package ID to
-different versions. Narrow `--target` to one project that resolves a single version, or specify
+different versions. Narrow `--source` to one project that resolves a single version, or specify
 `ID@VERSION`.
 
 **"resolve to more than one version"** Projects in the target reference different versions of
@@ -637,4 +637,4 @@ invoke the tool.
 
 **A solution filter (`.slnf`) is rejected.** Not every SDK accepts a solution filter with
 `dotnet list package`. Pass the underlying `.sln` file instead, or run the tool once for each
-project with `--target`.
+project with `--source`.

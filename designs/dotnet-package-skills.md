@@ -19,16 +19,16 @@ ms.date: 10/12/2026
 ```dotnetcli
 dotnet-package-skills install [-d|--destination <PATH>] [--dry-run]
     [--global-packages <PATH>] [-i|--interactive]
-    [-p|--package <ID[@VERSION]>...] [-t|--target <PATH>]
+    [-p|--package <ID[@VERSION]>...] [-s|--source <PATH>]
 
 dotnet-package-skills list [-d|--destination <PATH>] [--global-packages <PATH>]
-    [-p|--package <ID[@VERSION]>...] [-t|--target <PATH>]
+    [-p|--package <ID[@VERSION]>...] [-s|--source <PATH>]
 
 dotnet-package-skills uninstall [-d|--destination <PATH>] [--dry-run]
     [-i|--interactive] [-p|--package <ID[@VERSION]>]
 
 dotnet-package-skills uninstall --stale [-d|--destination <PATH>] [--dry-run]
-    [-i|--interactive] [-t|--target <PATH>]
+    [-i|--interactive] [-s|--source <PATH>]
 
 dotnet-package-skills [install|list|uninstall] -h|--help
 
@@ -46,7 +46,7 @@ dotnet restore
 dotnet-package-skills install
 ```
 
-The skills are copied to `.agents/skills` under the current directory. If your agent reads skills from another folder, add `--destination`, for example `--destination .claude/skills`. If your solution or project isn't in the current directory, pass its path to both commands, for example `dotnet restore src/MyApp.slnx` and `dotnet-package-skills install --target src/MyApp.slnx`. To choose which skills to install, add `--interactive`. Run `install` again after you add or upgrade packages.
+The skills are copied to `.agents/skills` under the current directory. If your agent reads skills from another folder, add `--destination`, for example `--destination .claude/skills`. If your solution or project isn't in the current directory, pass its path to both commands, for example `dotnet restore src/MyApp.slnx` and `dotnet-package-skills install --source src/MyApp.slnx`. To choose which skills to install, add `--interactive`. Run `install` again after you add or upgrade packages.
 
 > [!IMPORTANT]
 > Skills are instructions that your coding agent follows. Review them before you rely on them.
@@ -55,9 +55,9 @@ The command reads only the direct package references of your solution or project
 
 This article uses these terms:
 
-- **Target**: the solution or project whose package references the command reads. Without `--target`, the command looks for one in the current directory, and then in its subdirectories. Reports show the target after `Target:`.
+- **Source**: the solution or project whose package references the command reads, selected with `--source`. Without `--source`, the command looks for one in the current directory, and then in its subdirectories. Reports show it after `Source:`.
 - **NuGet global-packages directory**: the NuGet package storage directory from which `install` and `list` read package contents. Reports show it after `NuGet global-packages directory:`.
-- **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--target` doesn't change it. Reports show it after `Destination:`.
+- **Skills folder**: the folder that skills are copied to, `.agents/skills` under the current directory unless you specify `--destination`. `--source` doesn't change it. `install` and `uninstall` reports show it after `Destination:`; `list` omits it because nothing is copied.
 - **Tracked skill**: a skill that the command installed, as recorded in the [manifest](#manifest-file) in the skills folder. The command updates and removes only tracked skills, never folders that you created.
 - **Stale skill**: a tracked skill whose package the target no longer references at the version that the skill came from.
 
@@ -66,9 +66,8 @@ This article uses these terms:
 `dotnet-package-skills list` shows the skills that the target's packages ship, without copying anything. It runs [`dotnet list package --no-restore`](https://learn.microsoft.com/dotnet/core/tools/dotnet-package-list) on the target to find its top-level (direct) package references, and then looks for skills in those packages in the NuGet global-packages directory:
 
 ```output
-Target:      C:\src\MyApp\MyApp.slnx
+Source:      C:\src\MyApp\MyApp.slnx
 NuGet global-packages directory: C:\packages
-Destination: C:\src\MyApp\.agents\skills
 Scanned 2 packages (direct).
 
 Found 4 skills:
@@ -78,7 +77,7 @@ Found 4 skills:
   fabrikam.testing-fixtures (Fabrikam.Testing 1.4.0)
 ```
 
-The `NuGet global-packages directory` value is where skills are read from, and `Destination` is the skills folder that `install` would copy them to. `list` doesn't look in the skills folder for package contents, but it does read the [manifest](#manifest-file) there when a bare `--package <ID>` needs its tracked version.
+The `Source` value identifies the solution or project whose package references are read, and `NuGet global-packages directory` is where the skill files are read from. `list` omits the skills folder from its report because it doesn't copy anything there. It still reads the [manifest](#manifest-file) in that folder when a bare `--package <ID>` needs its tracked version; use `--destination` to select a different manifest location.
 
 Restore the target before you run the command. The command passes `--no-restore` to `dotnet list package` so that it never restores the target, including during a dry run. If `dotnet list package` fails, the command shows what it reported and changes nothing; fix the problem, for example by restoring the target, and then run the command again. If a package that the target references isn't in the NuGet global-packages directory, `list` skips the package and `install` stops.
 
@@ -86,7 +85,7 @@ To read skills from specific packages instead of a target, specify `--package <I
 
 ### Install and update skills
 
-`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. After the same first lines as the `list` report, the report lists the skills that were copied:
+`dotnet-package-skills install` copies the target's skills into the skills folder and records them in the manifest. Each skill keeps its folder name from the package. Its report starts with `Source:`, `NuGet global-packages directory:`, and `Destination:`, followed by the package count and the skills that were copied:
 
 ```output
 Copied 4 skills:
@@ -145,9 +144,9 @@ To remove only one package's skills, add `--package <ID>`, or add `--package <ID
 dotnet-package-skills uninstall --stale
 ```
 
-This command removes every stale skill. Run `install` first, so that the skills of upgraded packages are updated instead of removed. The report looks like the `uninstall` report, with a `Target:` line first. Add `--dry-run` to preview the removal, or `--interactive` to choose among the stale skills.
+This command removes every stale skill. Run `install` first, so that the skills of upgraded packages are updated instead of removed. The report looks like the `uninstall` report, with a `Source:` line first. Add `--dry-run` to preview the removal, or `--interactive` to choose among the stale skills.
 
-`--stale` needs a target, which the command finds the same way as for `install`, or which you specify with `--target`.
+`--stale` needs a target, which the command finds the same way as for `install`, or which you specify with `--source`.
 
 Skills that you installed with `install --package` are stale unless the target references the same package version. For each skills folder, use either a target or `--package`, not both.
 
@@ -257,7 +256,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`-d|--destination <PATH>`**
 
-  For `install`, `list`, and `uninstall`, specifies the skills folder. Defaults to `.agents/skills`. A relative path is resolved from the current directory, even when `--target` points somewhere else. `list` doesn't copy anything to the folder, but it reads the manifest there to resolve a bare `--package <ID>`. To remove skills, specify the folder that they were installed to.
+  For `install`, `list`, and `uninstall`, specifies the skills folder. Defaults to `.agents/skills`. A relative path is resolved from the current directory, even when `--source` points somewhere else. `list` doesn't copy anything to the folder, but it reads the manifest there to resolve a bare `--package <ID>`. To remove skills, specify the folder that they were installed to.
 
 - **`--dry-run`**
 
@@ -277,7 +276,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`-p|--package <ID[@VERSION]>`**
 
-  For `install` and `list`, reads skills from the specified package instead of a target. A bare ID, such as `Contoso.Widgets`, resolves only to the version tracked for that package in `.dotnet-package-skills.json` in the destination. If the package isn't tracked, include an exact version, such as `Contoso.Widgets@2.3.0`; the command doesn't choose from the versions in the NuGet global-packages directory. Floating versions and version ranges aren't accepted. Repeat the option to name several packages. Duplicates, such as `Mockly@1.10` and `Mockly@1.10.0`, count once. `install` accepts only one version of each package, while `list` shows every version that the options select. The package must already be in the NuGet global-packages directory; if it isn't, the command finds no skills in it and doesn't warn you. Can't be combined with `--target`.
+  For `install` and `list`, reads skills from the specified package instead of inspecting all package references. A bare ID, such as `Contoso.Widgets`, uses the version tracked for that package in `.dotnet-package-skills.json` in the destination first, then resolves an untracked ID from `--source` or an auto-detected solution or project. An explicit version, such as `Contoso.Widgets@2.3.0`, bypasses version resolution; the command doesn't choose from the versions in the NuGet global-packages directory. Floating versions and version ranges aren't accepted. Repeat the option to name several packages. Duplicates, such as `Mockly@1.10` and `Mockly@1.10.0`, count once. `install` accepts only one version of each package, while `list` shows every version that the options select. The package must already be in the NuGet global-packages directory; if it isn't, the command finds no skills in it and doesn't warn you. Can be combined with `--source` to resolve untracked bare IDs.
 
 - **`-p|--package <ID[@VERSION]>`**
 
@@ -285,11 +284,11 @@ If a file system error interrupts a copy or removal, the command reports it but 
 
 - **`--stale`**
 
-  For `uninstall`, removes only stale skills. Requires a target. Can be combined with `--target`, `--dry-run`, and `--interactive`, but not with `--package`. For more information, see [Remove stale skills](#remove-stale-skills).
+  For `uninstall`, removes only stale skills. Requires a target. Can be combined with `--source`, `--dry-run`, and `--interactive`, but not with `--package`. For more information, see [Remove stale skills](#remove-stale-skills).
 
-- **`-t|--target <PATH>`**
+- **`-s|--source <PATH>`**
 
-  For `install`, `list`, and `uninstall --stale`, specifies the solution (`.slnx` or `.sln`), project (`.csproj`, `.fsproj`, or `.vbproj`), or directory to read package references from. For a directory, or when the option is omitted, the command looks for a solution or project in that directory, and then in its subdirectories. Doesn't change the skills folder. Can't be combined with `--package`.
+  For `install`, `list`, and `uninstall --stale`, specifies the solution (`.slnx` or `.sln`), project (`.csproj`, `.fsproj`, or `.vbproj`), or directory to read package references from. For a directory, or when the option is omitted, the command looks for a solution or project in that directory, and then in its subdirectories. Doesn't change the skills folder. For `install` and `list`, can be combined with `--package` to resolve untracked bare IDs.
 
 - **`--version`**
 
@@ -312,7 +311,7 @@ If a file system error interrupts a copy or removal, the command reports it but 
 - Install the skills of a solution in a subfolder:
 
   ```dotnetcli
-  dotnet-package-skills install --target src/MyApp.slnx
+  dotnet-package-skills install --source src/MyApp.slnx
   ```
 
 - Install skills into `.claude/skills` instead of `.agents/skills`:

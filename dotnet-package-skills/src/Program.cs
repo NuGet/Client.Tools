@@ -32,10 +32,11 @@ namespace DotnetPackageSkills.Cli
 
         internal static RootCommand Build(IProcessRunner runner)
         {
-            var target = new Option<string?>("--target", "-t")
+            var source = new Option<string?>("--source", "-s")
             {
                 Description =
-                    "Solution or project to inspect, or to resolve untracked bare package IDs. " +
+                    "Solution, project, or directory to read package references from, " +
+                    "including to resolve untracked bare package IDs. " +
                     "Defaults to searching the current directory.",
                 HelpName = "PATH",
             };
@@ -44,7 +45,7 @@ namespace DotnetPackageSkills.Cli
             {
                 Description =
                     "Take skills from Id or Id@Version (for example Mockly@1.10.0). " +
-                    "A bare Id uses the destination manifest first, then --target or an auto-detected target. " +
+                    "A bare Id uses the destination manifest first, then --source or an auto-detected solution or project. " +
                     "Repeatable. Floating versions are not accepted.",
                 HelpName = "ID[@VERSION]",
                 Arity = ArgumentArity.OneOrMore,
@@ -129,7 +130,7 @@ namespace DotnetPackageSkills.Cli
 
             var install = new Command("install", "Copy skills bundled in NuGet packages into the repository.")
             {
-                target, package, destination, globalPackages, dryRun, interactive,
+                source, package, destination, globalPackages, dryRun, interactive,
             };
             install.SetAction(parseResult => Run(() =>
             {
@@ -151,7 +152,7 @@ namespace DotnetPackageSkills.Cli
 
             var list = new Command("list", "Show which packages ship skills, without copying anything.")
             {
-                target, package, destination, globalPackages,
+                source, package, destination, globalPackages,
             };
             list.SetAction(parseResult => Run(() =>
             {
@@ -175,17 +176,17 @@ namespace DotnetPackageSkills.Cli
                     "so it needs a solution or project.",
             };
 
-            var staleTarget = new Option<string?>("--target", "-t")
+            var staleSource = new Option<string?>("--source", "-s")
             {
                 Description =
-                    "With --stale, the solution or project to compare against. " +
+                    "With --stale, the solution, project, or directory to read package references from for comparison. " +
                     "Defaults to searching the current directory.",
                 HelpName = "PATH",
             };
 
             var uninstall = new Command("uninstall", "Remove skills this tool previously copied in.")
             {
-                uninstallDestination, uninstallPackage, stale, staleTarget, dryRun, uninstallInteractive,
+                uninstallDestination, uninstallPackage, stale, staleSource, dryRun, uninstallInteractive,
             };
             uninstall.Validators.Add(result =>
             {
@@ -198,9 +199,9 @@ namespace DotnetPackageSkills.Cli
                         "match the target; --package removes one package's skills.");
                 }
 
-                if (!isStale && result.GetResult(staleTarget) is not null)
+                if (!isStale && result.GetResult(staleSource) is not null)
                 {
-                    result.AddError("--target can be used with uninstall only together with --stale.");
+                    result.AddError("--source can be used with uninstall only together with --stale.");
                 }
             });
             uninstall.SetAction(parseResult => Run(() =>
@@ -212,7 +213,7 @@ namespace DotnetPackageSkills.Cli
                 var root = Path.GetFullPath(destinationValue, workingDirectory);
                 var service = new SkillInstallService(runner);
                 var references = parseResult.GetValue(stale)
-                    ? service.ReadReferences(parseResult.GetValue(staleTarget), workingDirectory)
+                    ? service.ReadReferences(parseResult.GetValue(staleSource), workingDirectory)
                     : null;
 
                 UninstallChoice? choice = null;
@@ -246,7 +247,7 @@ namespace DotnetPackageSkills.Cli
 
             InstallRequest BuildRequest(ParseResult parseResult) => new()
             {
-                Target = parseResult.GetValue(target),
+                Target = parseResult.GetValue(source),
                 Packages = [.. (parseResult.GetValue(package) ?? []).Select(PackageCoordinate.Parse)],
                 Destination = parseResult.GetValue(destination) ?? DefaultDestination,
                 WorkingDirectory = Directory.GetCurrentDirectory(),
