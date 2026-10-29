@@ -32,15 +32,13 @@ public class PackageListerTests
         """;
 
     [Fact]
-    public void List_runs_dotnet_list_package_without_a_restore_option()
+    public void List_runs_dotnet_list_package_with_no_restore()
     {
-        // Whether listing restores is the SDK's call: .NET 10 restores when it needs to, and
-        // earlier SDKs say that the target has to be restored first.
         var runner = new RecordingRunner(0, TwoProjectsJson);
 
         new PackageLister(new DotnetCli(runner)).List("App.csproj");
 
-        Assert.Equal("list App.csproj package --format json", Assert.Single(runner.Invocations));
+        Assert.Equal("list App.csproj package --no-restore --format json", Assert.Single(runner.Invocations));
     }
 
     [Fact]
@@ -55,7 +53,7 @@ public class PackageListerTests
         Assert.Contains("'dotnet list \"App.csproj\" package' failed with exit code 1", error.Message);
         Assert.Contains(UnrestoredError, error.Message);
         Assert.Contains("and then run this command again", error.Message);
-        Assert.Equal("list App.csproj package --format json", Assert.Single(runner.Invocations));
+        Assert.Equal("list App.csproj package --no-restore --format json", Assert.Single(runner.Invocations));
     }
 
     [Fact]

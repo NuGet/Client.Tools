@@ -27,12 +27,8 @@ public class SkillInstallServiceTests
 
             if (arguments.Contains("list"))
             {
+                Assert.Contains("--no-restore", arguments);
                 return new ProcessResult(0, listPackageJson, string.Empty);
-            }
-
-            if (arguments.Contains("restore"))
-            {
-                return new ProcessResult(0, "Restore succeeded.", string.Empty);
             }
 
             throw new InvalidOperationException($"Unexpected invocation: {line}");
@@ -251,7 +247,7 @@ public class SkillInstallServiceTests
 
         Assert.Contains("target resolution was unavailable", error.Message);
         Assert.Contains("Mockly", error.Message);
-        Assert.Contains("--target", error.Message);
+        Assert.Contains("--source", error.Message);
         Assert.Contains("ID@VERSION", error.Message);
         Assert.Empty(runner.Invocations);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
@@ -897,7 +893,7 @@ public class SkillInstallServiceTests
         Assert.DoesNotContain("--package", error.Message);
         Assert.DoesNotContain(path, error.Message);
         Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-        Assert.DoesNotContain("--target", error.Message);
+        Assert.DoesNotContain("--source", error.Message);
         Assert.DoesNotContain("--destination", error.Message);
     }
 
@@ -979,7 +975,7 @@ public class SkillInstallServiceTests
         Assert.DoesNotContain("--stale", reason);
         Assert.DoesNotContain(path, reason);
         Assert.DoesNotContain("dotnet-package-skills uninstall", reason);
-        Assert.DoesNotContain("--target", reason);
+        Assert.DoesNotContain("--source", reason);
         Assert.DoesNotContain("--destination", reason);
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(destination, "shared", "SKILL.md")));
         Assert.Equal("alpha-usage", Assert.Single(result.Skills).SkillName);
@@ -1796,7 +1792,7 @@ public class SkillInstallServiceTests
         var error = Assert.Throws<PackageSkillsException>(() =>
             service.ReadReferences(target: null, temp.Path));
 
-        Assert.Contains("--target", error.Message);
+        Assert.Contains("--source", error.Message);
     }
 
     private static (string Path, string Contents)[] Snapshot(string root) =>
