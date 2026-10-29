@@ -64,6 +64,8 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
         }
 
         WriteUnreferenced(result);
+        WriteIgnored(result);
+        WriteVersionWarnings(result);
         WriteSkipped(result);
 
         if (result.Skills.Count > 0 && copied && !result.DryRun)
@@ -75,6 +77,15 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
             output.WriteLine(
                 "These skills are instructions written by the package authors, " +
                 "and your coding agent will follow them. Review them before relying on them.");
+        }
+
+        foreach (var error in result.Errors.OrderBy(error => error.RelativePath, StringComparer.OrdinalIgnoreCase))
+        {
+            var candidates = string.Join(", ", error.Candidates.Select(skill =>
+                Describe(skill.SkillName, skill.PackageId, skill.PackageVersion)));
+            WriteError(
+                $"Skipped skill destination '{TerminalText.Sanitize(error.RelativePath)}': " +
+                $"{TerminalText.Sanitize(error.Reason)}. Candidates: {candidates}.");
         }
     }
 
@@ -130,12 +141,43 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
         }
 
         output.WriteLine();
-        output.WriteLine($"Warning: skipped {Count(result.Skipped.Count, "colliding skill")}:");
+        output.WriteLine(result.Errors.Count > 0
+            ? $"Skipped {Count(result.Skipped.Count, "colliding skill")}:"
+            : $"Warning: skipped {Count(result.Skipped.Count, "colliding skill")}:");
 
         foreach (var skill in result.Skipped)
         {
             output.WriteLine($"  {Describe(skill.RelativePath, skill.PackageId, skill.PackageVersion)}");
             output.WriteLine($"      {TerminalText.Sanitize(skill.Reason)}");
+        }
+    }
+
+    private void WriteIgnored(InstallResult result)
+    {
+        if (result.Ignored.Count == 0) { return; }
+
+        output.WriteLine();
+        output.WriteLine($"Ignored {Count(result.Ignored.Count, "package")} without valid bundled skills:");
+        foreach (var package in result.Ignored
+                     .OrderBy(package => package.PackageId, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(package => package.PackageVersion, StringComparer.Ordinal))
+        {
+            output.WriteLine(
+                $"  {TerminalText.Sanitize(package.PackageId)} {TerminalText.Sanitize(package.PackageVersion)}: " +
+                TerminalText.Sanitize(package.Reason));
+        }
+    }
+
+    private void WriteVersionWarnings(InstallResult result)
+    {
+        if (result.Warnings.Count == 0) { return; }
+
+        output.WriteLine();
+        foreach (var warning in result.Warnings.OrderBy(warning => warning.PackageId, StringComparer.OrdinalIgnoreCase))
+        {
+            var versions = string.Join(", ", warning.Versions.Select(version => TerminalText.Sanitize(version)));
+            output.WriteLine(
+                $"Warning: {TerminalText.Sanitize(warning.PackageId)} contributes skills from multiple versions ({versions}).");
         }
     }
 

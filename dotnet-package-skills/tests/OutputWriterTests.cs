@@ -74,7 +74,7 @@ public class OutputWriterTests
         var report = output.ToString();
         Assert.Contains("Warning: skipped 1 colliding skill:", report);
         Assert.Contains("shared-skill (Beta.Widgets 2.0.0)", report);
-        Assert.Contains("selected first", report);
+        Assert.Contains("the destination path already exists as a file", report);
     }
 
     [Fact]
@@ -375,7 +375,13 @@ public class OutputWriterTests
             version = 1,
             packages = new Dictionary<string, object>
             {
-                ["example"] = new { version, skills = new[] { "example-skill" } },
+                ["example"] = new
+                {
+                    versions = new Dictionary<string, object>
+                    {
+                        [version] = new { skills = new[] { "example-skill" } },
+                    },
+                },
             },
         }));
         var before = File.ReadAllBytes(manifest);
@@ -409,6 +415,44 @@ public class OutputWriterTests
         Assert.Equal(
             $"error: Could not read the package.{Environment.NewLine}Restore it and try again.{Environment.NewLine}",
             errors.ToString());
+    }
+
+    [Fact]
+    public void Ignored_warning_and_error_diagnostics_sanitize_fields_and_keep_stderr_separate()
+    {
+        var skill = new BundledSkill("A", "1.0.0", "shared", "source", "shared");
+        var clean = ResultWithCollision() with
+        {
+            Ignored = [new IgnoredPackage("Empty", "3.0.0", "no valid bundled skills")],
+            Warnings = [new PackageVersionWarning("A", ["1.0.0", "2.0.0"])],
+            Errors = [new SkillCollision("shared", [skill], "multiple package skills target the same destination")],
+        };
+        var untrusted = clean with
+        {
+            Ignored = [new IgnoredPackage(WithControls("Empty"), WithControls("3.0.0"), WithControls("no valid bundled skills"))],
+            Warnings = [new PackageVersionWarning(WithControls("A"), [WithControls("1.0.0"), WithControls("2.0.0")])],
+            Errors =
+            [
+                new SkillCollision(WithControls("shared"),
+                    [skill with { PackageId = WithControls("A"), PackageVersion = WithControls("1.0.0") }],
+                    WithControls("multiple package skills target the same destination")),
+            ],
+        };
+        using var expected = new StringWriter();
+        using var actual = new StringWriter();
+        using var expectedErrors = new StringWriter();
+        using var actualErrors = new StringWriter();
+
+        new OutputWriter(expected, expectedErrors).WriteInstallReport(clean, copied: true);
+        new OutputWriter(actual, actualErrors).WriteInstallReport(untrusted, copied: true);
+
+        Assert.Contains("Ignored", actual.ToString());
+        Assert.Contains("Warning:", actual.ToString());
+        Assert.Contains("error:", actualErrors.ToString());
+        Assert.DoesNotContain("error:", actual.ToString());
+        Assert.Equal(expected.ToString(), actual.ToString());
+        Assert.Equal(expectedErrors.ToString(), actualErrors.ToString());
+        AssertPlainText(actual.ToString() + actualErrors);
     }
 
     [Fact]
@@ -468,7 +512,7 @@ public class OutputWriterTests
                 "Beta.Widgets",
                 "2.0.0",
                 "shared-skill",
-                "conflicts with Alpha.Widgets 1.0.0 skill 'shared-skill', which was selected first"),
+                "the destination path already exists as a file"),
         ],
     };
 }

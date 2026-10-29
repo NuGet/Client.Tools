@@ -336,13 +336,15 @@ public class SkillInstallServiceTests
         };
 
         var discovered = service.Discover(request);
-        var error = Assert.Throws<PackageSkillsException>(() => service.Install(request, discovered, choice: null));
+        var result = service.Install(request, discovered, choice: null);
 
         Assert.Equal(["1.0.0", "2.0.0"],
             discovered.ResolvedPackages.Select(package => package.Version).OrderBy(version => version));
-        Assert.Contains("one version per package", error.Message);
+        Assert.Equal(2, result.Skills.Count);
+        Assert.Single(result.Warnings);
+        Assert.Empty(result.Errors);
         Assert.Single(runner.Invocations);
-        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+        Assert.Equal(2, InstallManifest.Load(result.Destination).EnumerateSkills().Count());
     }
 
     [Fact]
@@ -371,10 +373,12 @@ public class SkillInstallServiceTests
     [Theory]
     [InlineData("list")]
     [InlineData("install")]
-    public void Multiple_target_versions_for_a_bare_id_fail_for_list_and_install(string mode)
+    public void Multiple_target_versions_for_a_bare_id_expand_for_list_and_install(string mode)
     {
         using var temp = new TempDirectory();
         var target = temp.CreateFile("App.sln");
+        temp.CreatePackageWithSkill("Mockly", "1.10.0", "usage");
+        temp.CreatePackageWithSkill("Mockly", "1.11.0", "testing");
         const string json = """
             {
               "projects": [
@@ -400,24 +404,12 @@ public class SkillInstallServiceTests
             Packages = [PackageCoordinate.Parse("Mockly")],
         };
 
-        var error = Assert.Throws<PackageSkillsException>(() =>
-        {
-            if (mode == "install")
-            {
-                service.Install(request);
-            }
-            else
-            {
-                service.Discover(request);
-            }
-        });
+        var result = mode == "install" ? service.Install(request) : service.Discover(request);
 
-        Assert.Contains(target, error.Message);
-        Assert.Contains("1.10.0", error.Message);
-        Assert.Contains("1.11.0", error.Message);
-        Assert.Contains("Narrow --target", error.Message);
-        Assert.Contains("ID@VERSION", error.Message);
-        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
+        Assert.Equal(2, result.PackagesScanned);
+        Assert.Equal(["testing", "usage"], result.Skills.Select(skill => skill.SkillName).Order());
+        Assert.Single(result.Warnings);
+        Assert.Equal(mode == "install", Directory.Exists(temp.Combine(".agents", "skills")));
     }
 
     [Theory]
@@ -522,24 +514,25 @@ public class SkillInstallServiceTests
     }
 
     [Fact]
-    public void Bare_and_explicit_distinct_versions_still_stop_install_before_changes()
+    public void Bare_and_explicit_distinct_versions_install_disjoint_skills_with_a_warning()
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
         temp.CreatePackageWithSkill("Mockly", "2.0.0", "other-version");
         var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
         service.Install(Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly@1.0.0")] });
-        var before = Snapshot(temp.Combine(".agents", "skills"));
         var request = Request(temp) with
         {
             Packages = [PackageCoordinate.Parse("mockly"), PackageCoordinate.Parse("Mockly@2.0.0")],
         };
 
         Assert.Equal(2, service.Discover(request).PackagesScanned);
-        var error = Assert.Throws<PackageSkillsException>(() => service.Install(request));
+        var result = service.Install(request);
 
-        Assert.Contains("one version per package", error.Message);
-        Assert.Equal(before, Snapshot(temp.Combine(".agents", "skills")));
+        Assert.Equal(2, result.Skills.Count);
+        Assert.Single(result.Warnings);
+        Assert.Empty(result.Errors);
+        Assert.Equal(2, InstallManifest.Load(result.Destination).EnumerateSkills().Count());
     }
 
     [Fact]
@@ -548,12 +541,12 @@ public class SkillInstallServiceTests
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
         temp.CreateFile($".agents/skills/{InstallManifest.FileName}",
-            """{"version":1,"packages":{"Mockly":{"version":"1.0","skills":[]}}}""");
+            """{"version":1,"packages":{"Mockly":{"versions":{"1.0":{"skills":[]}}}}}""");
         var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json()));
 
         var result = service.Discover(Request(temp) with { Packages = [PackageCoordinate.Parse("mockly")] });
 
-        Assert.Equal("1.0", Assert.Single(result.ResolvedPackages).Version);
+        Assert.Equal("1.0.0", Assert.Single(result.ResolvedPackages).Version);
         Assert.Equal("usage", Assert.Single(result.Skills).SkillName);
     }
 
@@ -853,7 +846,7 @@ public class SkillInstallServiceTests
     }
 
     [Fact]
-    public void An_interactive_install_of_a_named_package_stops_when_another_version_is_installed()
+    public void An_interactive_install_of_a_named_package_offers_only_new_skills_from_another_version()
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
@@ -864,12 +857,11 @@ public class SkillInstallServiceTests
         var before = Snapshot(destination);
         var request = Request(temp) with { Packages = [PackageCoordinate.Parse("Mockly@1.11.0")] };
 
-        var error = Assert.Throws<PackageSkillsException>(() => service.PrepareInteractiveInstall(
-            request, service.Discover(request), SkillInstallService.InstalledSkills(destination, temp.Path)));
+        var result = service.PrepareInteractiveInstall(
+            request, service.Discover(request), SkillInstallService.InstalledSkills(destination, temp.Path));
 
-        Assert.Contains("Mockly 1.10.0 is already installed", error.Message);
-        Assert.Contains("Use uninstall with --package", error.Message);
-        Assert.DoesNotContain("--stale", error.Message);
+        Assert.Equal("mockly-testing", Assert.Single(result.Skills).SkillName);
+        Assert.Empty(result.Errors);
         Assert.Equal(before, Snapshot(destination));
     }
 
@@ -883,7 +875,7 @@ public class SkillInstallServiceTests
     [InlineData("path\ncommand")]
     [InlineData("path\tcommand")]
     [InlineData("my\u001b[2Jskills")]
-    public void Interactive_option_guidance_does_not_interpolate_arbitrary_request_paths(string path)
+    public void Interactive_stale_guidance_does_not_interpolate_arbitrary_request_paths(string path)
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
@@ -892,26 +884,21 @@ public class SkillInstallServiceTests
         var discovered = service.Discover(Request(temp) with { Packages = packages });
         TrackedSkill[] installed = [new("mockly", "1.9.0", "mockly")];
 
-        foreach (var packageFilter in new[] { false, true })
+        var request = Request(temp) with
         {
-            var request = Request(temp) with
-            {
-                Destination = path,
-                Target = path,
-                Packages = packageFilter ? packages : [],
-            };
-            var error = Assert.Throws<PackageSkillsException>(() =>
-                service.PrepareInteractiveInstall(request, discovered, installed));
+            Destination = path,
+            Target = path,
+            Packages = [],
+        };
+        var error = Assert.Throws<PackageSkillsException>(() =>
+            service.PrepareInteractiveInstall(request, discovered, installed));
 
-            Assert.Contains(packageFilter
-                ? "Use uninstall with --package to remove skills for the conflicting packages, then try again."
-                : "Use uninstall with --stale to remove skills that no longer match the project.", error.Message);
-            Assert.DoesNotContain(packageFilter ? "--stale" : "--package", error.Message);
-            Assert.DoesNotContain(path, error.Message);
-            Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-            Assert.DoesNotContain("--target", error.Message);
-            Assert.DoesNotContain("--destination", error.Message);
-        }
+        Assert.Contains("Use uninstall with --stale to remove skills that no longer match the project.", error.Message);
+        Assert.DoesNotContain("--package", error.Message);
+        Assert.DoesNotContain(path, error.Message);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
+        Assert.DoesNotContain("--target", error.Message);
+        Assert.DoesNotContain("--destination", error.Message);
     }
 
     [Fact]
@@ -941,7 +928,7 @@ public class SkillInstallServiceTests
     }
 
     [Fact]
-    public void An_installed_other_version_requires_package_option_guidance_not_stale_removal()
+    public void An_installed_other_version_is_not_refreshed_by_an_interactive_named_install()
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
@@ -951,12 +938,13 @@ public class SkillInstallServiceTests
         service.Install(request with { Packages = [PackageCoordinate.Parse("Mockly@1.10.0")] });
         var upgrade = request with { Packages = [PackageCoordinate.Parse("Mockly@1.11.0")] };
 
-        var error = Assert.Throws<PackageSkillsException>(() => service.PrepareInteractiveInstall(
-            upgrade, service.Discover(upgrade), SkillInstallService.InstalledSkills(".claude/skills", temp.Path)));
+        var result = service.PrepareInteractiveInstall(
+            upgrade, service.Discover(upgrade), SkillInstallService.InstalledSkills(".claude/skills", temp.Path));
 
-        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
-        Assert.DoesNotContain("--stale", error.Message);
-        Assert.DoesNotContain("--destination", error.Message);
+        Assert.Empty(result.Skills);
+        Assert.Empty(result.Errors);
+        Assert.Equal(new TrackedSkill("mockly", "1.10.0", "mockly"),
+            Assert.Single(InstallManifest.Load(result.Destination).EnumerateSkills()));
     }
 
     [Theory]
@@ -978,22 +966,23 @@ public class SkillInstallServiceTests
         var request = Request(temp) with { Destination = ".claude/skills" };
         new SkillInstallService(new FakeDotnet(temp.Combine("packages"), Json(("Alpha", "1.0.0")))).Install(request);
         var destination = temp.Combine(".claude", "skills");
-        var before = Snapshot(destination);
+        var before = File.ReadAllBytes(Path.Combine(destination, "shared", "SKILL.md"));
         var service = new SkillInstallService(new FakeDotnet(
             temp.Combine("packages"), Json(("Alpha", "2.0.0"), ("Beta", "1.0.0"))));
 
         var discovered = service.Discover(request);
-        var error = Assert.Throws<PackageSkillsException>(() =>
-            service.Install(request with { Target = path, Destination = path }, discovered, choice: null));
+        var result = service.Install(request with { Target = path, Destination = path }, discovered, choice: null);
+        var reason = Assert.Single(result.Errors).Reason;
 
-        Assert.Contains("Alpha 2.0.0 no longer ships the installed skill 'shared'", error.Message);
-        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
-        Assert.DoesNotContain("--stale", error.Message);
-        Assert.DoesNotContain(path, error.Message);
-        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-        Assert.DoesNotContain("--target", error.Message);
-        Assert.DoesNotContain("--destination", error.Message);
-        Assert.Equal(before, Snapshot(destination));
+        Assert.Contains("alpha 1.0.0", reason);
+        Assert.Contains("use uninstall with --package to remove the current owner's skills", reason);
+        Assert.DoesNotContain("--stale", reason);
+        Assert.DoesNotContain(path, reason);
+        Assert.DoesNotContain("dotnet-package-skills uninstall", reason);
+        Assert.DoesNotContain("--target", reason);
+        Assert.DoesNotContain("--destination", reason);
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(destination, "shared", "SKILL.md")));
+        Assert.Equal("alpha-usage", Assert.Single(result.Skills).SkillName);
     }
 
     [Fact]
@@ -1033,7 +1022,7 @@ public class SkillInstallServiceTests
     }
 
     [Fact]
-    public void Installation_prefers_the_current_owners_upgrade_over_an_earlier_named_collision()
+    public void Installation_skips_all_collisions_even_when_one_is_the_current_owners_upgrade()
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -1047,14 +1036,15 @@ public class SkillInstallServiceTests
             temp.Combine("packages"), Json(("Alpha", "1.0.0"), ("Zeta", "2.0.0"))));
 
         var discovered = service.Discover(Request(temp));
-        Assert.Equal("Alpha", Assert.Single(discovered.Skills).PackageId);
+        Assert.Empty(discovered.Skills);
         var result = service.Install(Request(temp), discovered, choice: null);
 
-        Assert.Equal("Zeta", Assert.Single(result.Skills).PackageId);
-        Assert.Equal("Alpha", Assert.Single(result.Skipped).PackageId);
+        Assert.Empty(result.Skills);
+        Assert.Equal(2, result.Skipped.Count);
+        Assert.Single(result.Errors);
         Assert.Empty(result.Removed);
-        Assert.Equal("updated owner", File.ReadAllText(Path.Combine(result.Destination, "shared", "SKILL.md")));
-        Assert.Equal("2.0.0", Assert.Single(InstallManifest.Load(result.Destination).Packages).Value.Version);
+        Assert.Equal("---\nname: shared\n---\n", File.ReadAllText(Path.Combine(result.Destination, "shared", "SKILL.md")));
+        Assert.Equal("1.0.0", Assert.Single(Assert.Single(InstallManifest.Load(result.Destination).Packages).Value.Versions).Key);
     }
 
     [Fact]
@@ -1165,7 +1155,7 @@ public class SkillInstallServiceTests
         Assert.True(Directory.Exists(temp.Combine(".agents", "skills", "mockly")));
         Assert.Equal(
             "1.11.0",
-            Assert.Single(InstallManifest.Load(temp.Combine(".agents", "skills")).Packages).Value.Version);
+            Assert.Single(Assert.Single(InstallManifest.Load(temp.Combine(".agents", "skills")).Packages).Value.Versions).Key);
     }
 
     [Theory]
@@ -1173,7 +1163,7 @@ public class SkillInstallServiceTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void A_solution_whose_projects_disagree_on_a_version_stops_every_install_mode(bool interactive, bool dryRun)
+    public void A_solution_with_colliding_versions_reports_both_and_preserves_existing_skills(bool interactive, bool dryRun)
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -1205,27 +1195,20 @@ public class SkillInstallServiceTests
         var service = new SkillInstallService(new FakeDotnet(temp.Combine("packages"), json));
         var request = Request(temp) with { DryRun = dryRun };
 
-        var error = Assert.Throws<PackageSkillsException>(() =>
-        {
-            if (interactive)
-            {
-                service.PrepareInteractiveInstall(
-                    request, service.Discover(request), SkillInstallService.InstalledSkills(destination, temp.Path));
-            }
-            else
-            {
-                service.Install(request);
-            }
-        });
+        var result = interactive
+            ? service.PrepareInteractiveInstall(
+                request, service.Discover(request), SkillInstallService.InstalledSkills(destination, temp.Path))
+            : service.Install(request);
 
-        Assert.Contains("Mockly (1.10.0, 1.11.0)", error.Message);
-        Assert.Contains("Central Package Management", error.Message);
-        Assert.Contains("No skills were changed", error.Message);
+        Assert.Empty(result.Skills);
+        Assert.Equal(2, result.Skipped.Count);
+        Assert.Single(result.Errors);
+        Assert.Single(result.Warnings);
         Assert.Equal(before, Snapshot(destination));
     }
 
     [Fact]
-    public void Two_versions_of_a_package_that_ships_no_skills_also_stop_the_install()
+    public void Two_versions_of_a_package_that_ships_no_skills_are_ignored()
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -1236,15 +1219,18 @@ public class SkillInstallServiceTests
             temp.Combine("packages"),
             Json(("Mockly", "1.10.0"), ("Newtonsoft.Json", "12.0.3"), ("Newtonsoft.Json", "13.0.3"))));
 
-        var error = Assert.Throws<PackageSkillsException>(() => service.Install(Request(temp)));
+        var result = service.Install(Request(temp));
 
-        Assert.Contains("Newtonsoft.Json (12.0.3, 13.0.3)", error.Message);
-        Assert.DoesNotContain("Mockly", error.Message);
-        Assert.False(Directory.Exists(temp.Combine(".agents")));
+        Assert.Equal("mockly", Assert.Single(result.Skills).SkillName);
+        Assert.Equal(2, result.Ignored.Count);
+        Assert.All(result.Ignored, package => Assert.Equal("Newtonsoft.Json", package.PackageId));
+        Assert.Empty(result.Warnings);
+        Assert.Empty(result.Errors);
+        Assert.True(File.Exists(temp.Combine(".agents", "skills", "mockly", "SKILL.md")));
     }
 
     [Fact]
-    public void List_still_shows_what_each_version_ships_when_a_package_has_two()
+    public void List_shows_only_unambiguous_skills_and_reports_every_collision()
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -1255,15 +1241,17 @@ public class SkillInstallServiceTests
 
         var result = service.Discover(Request(temp));
 
-        Assert.Equal(["mockly", "mockly-testing"], result.Skills.Select(skill => skill.SkillName));
-        Assert.Equal("1.11.0", Assert.Single(result.Skipped).PackageVersion);
+        Assert.Equal("mockly-testing", Assert.Single(result.Skills).SkillName);
+        Assert.Equal(["1.10.0", "1.11.0"], result.Skipped.Select(skill => skill.PackageVersion));
+        Assert.Single(result.Errors);
+        Assert.Single(result.Warnings);
         Assert.False(Directory.Exists(temp.Combine(".agents")));
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Naming_one_package_with_two_versions_stops_the_install(bool interactive)
+    public void Naming_disjoint_versions_installs_or_prepares_both_with_a_warning(bool interactive)
     {
         using var temp = new TempDirectory();
         temp.CreatePackageWithSkill("Mockly", "1.10.0", "mockly");
@@ -1274,26 +1262,18 @@ public class SkillInstallServiceTests
             Packages = [PackageCoordinate.Parse("Mockly@1.10.0"), PackageCoordinate.Parse("mockly@1.11")],
         };
 
-        var error = Assert.Throws<PackageSkillsException>(() =>
-        {
-            if (interactive)
-            {
-                service.PrepareInteractiveInstall(request, service.Discover(request), []);
-            }
-            else
-            {
-                service.Install(request);
-            }
-        });
+        var result = interactive
+            ? service.PrepareInteractiveInstall(request, service.Discover(request), [])
+            : service.Install(request);
 
-        Assert.Contains("Mockly (1.10.0, 1.11)", error.Message);
-        Assert.Contains("one version per package", error.Message);
-        Assert.Contains("No skills were changed", error.Message);
-        Assert.False(Directory.Exists(temp.Combine(".agents")));
+        Assert.Equal(2, result.Skills.Count);
+        Assert.Empty(result.Errors);
+        Assert.Single(result.Warnings);
+        Assert.Equal(!interactive, Directory.Exists(temp.Combine(".agents", "skills")));
     }
 
     [Fact]
-    public void Skills_from_different_packages_that_share_a_name_keep_the_first_and_warn()
+    public void Skills_from_different_packages_that_share_a_name_are_all_skipped_with_an_error()
     {
         using var temp = new TempDirectory();
         temp.CreateFile("MyApp.sln");
@@ -1305,9 +1285,10 @@ public class SkillInstallServiceTests
             Json(("Beta.Widgets", "1.0.0"), ("Alpha.Widgets", "1.0.0")));
         var result = new SkillInstallService(runner).Install(Request(temp));
 
-        Assert.Equal("Alpha.Widgets", Assert.Single(result.Skills).PackageId);
-        Assert.Equal("Beta.Widgets", Assert.Single(result.Skipped).PackageId);
-        Assert.True(File.Exists(temp.Combine(".agents", "skills", "shared-skill", "SKILL.md")));
+        Assert.Empty(result.Skills);
+        Assert.Equal(2, result.Skipped.Count);
+        Assert.Single(result.Errors);
+        Assert.False(Directory.Exists(temp.Combine(".agents", "skills")));
     }
 
     [Fact]
@@ -1390,7 +1371,7 @@ public class SkillInstallServiceTests
         Assert.Equal(new TrackedSkill("mockly", "1.10.0", "mockly-migration"), Assert.Single(result.Removed));
         Assert.Empty(result.Unreferenced);
         Assert.False(Directory.Exists(temp.Combine(".agents", "skills", "mockly-migration")));
-        Assert.Equal("1.11.0", InstallManifest.Load(result.Destination).Packages["mockly"].Version);
+        Assert.Equal("1.11.0", Assert.Single(InstallManifest.Load(result.Destination).Packages["mockly"].Versions).Key);
     }
 
     [Fact]
@@ -1411,8 +1392,8 @@ public class SkillInstallServiceTests
         Assert.Empty(result.Unreferenced);
         Assert.True(File.Exists(temp.Combine(".agents", "skills", "widget-usage", "SKILL.md")));
         var manifest = InstallManifest.Load(result.Destination);
-        Assert.Equal("1.11.0", manifest.Packages["mockly"].Version);
-        Assert.Equal("2.3.0", manifest.Packages["contoso.widgets"].Version);
+        Assert.Equal("1.11.0", Assert.Single(manifest.Packages["mockly"].Versions).Key);
+        Assert.Equal("2.3.0", Assert.Single(manifest.Packages["contoso.widgets"].Versions).Key);
     }
 
     [Fact]

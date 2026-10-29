@@ -44,7 +44,8 @@ namespace DotnetPackageSkills.Cli
             {
                 Description =
                     "Take skills from Id or Id@Version (for example Mockly@1.10.0). " +
-                    "A bare Id uses the destination manifest first, then --target or an auto-detected target. " +
+                    "A bare Id uses all tracked versions in the destination manifest first, then all versions " +
+                    "from --target or an auto-detected target. " +
                     "Repeatable. Floating versions are not accepted.",
                 HelpName = "ID[@VERSION]",
                 Arity = ArgumentArity.OneOrMore,
@@ -91,8 +92,8 @@ namespace DotnetPackageSkills.Cli
             var uninstallPackage = new Option<string?>("--package", "-p")
             {
                 Description =
-                    "Remove only this package's skills. Accepts Id, or Id@Version to remove them " +
-                    "only if that version is the one installed.",
+                    "Remove only this package's skills. Accepts Id for all installed versions, " +
+                    "or Id@Version for only that version's skills.",
                 HelpName = "ID[@VERSION]",
                 Arity = ArgumentArity.ExactlyOne,
             };
@@ -143,10 +144,11 @@ namespace DotnetPackageSkills.Cli
                 if (result is null)
                 {
                     new OutputWriter(Console.Out).WriteCancelled();
-                    return;
+                    return 0;
                 }
 
                 new OutputWriter(Console.Out).WriteInstallReport(result, copied: true);
+                return result.Errors.Count > 0 ? 1 : 0;
             }));
 
             var list = new Command("list", "Show which packages ship skills, without copying anything.")
@@ -339,7 +341,7 @@ namespace DotnetPackageSkills.Cli
                 : $"Which skills should be installed? ({Path.GetFileName(discovered.Target)})";
 
         /// <summary>
-        /// Splits the uninstall filter. An omitted version means whichever version is installed.
+        /// Splits the uninstall filter. An omitted version means all installed versions.
         /// </summary>
         internal static (string? Id, string? Version) ParseUninstallFilter(string? value)
         {
@@ -370,12 +372,17 @@ namespace DotnetPackageSkills.Cli
         /// Turns expected failures into a plain message and a non-zero exit code. Users of a CLI
         /// should get guidance, not a stack trace, for anything we anticipated.
         /// </summary>
-        private static int Run(Action action)
+        private static int Run(Action action) => Run(() =>
+        {
+            action();
+            return 0;
+        });
+
+        private static int Run(Func<int> action)
         {
             try
             {
-                action();
-                return 0;
+                return action();
             }
             catch (Exception ex) when (ex is PackageSkillsException or ProcessExecutionException)
             {
