@@ -40,6 +40,12 @@ public class OutputLayoutTests
             Result() with { Skills = [], SkillsDiscovered = 0 }, copied: true));
         yield return ("install nothing chosen", Render(
             Result() with { Skills = [], SkillsDiscovered = 2 }, copied: true));
+        yield return ("install ignored packages", Render(
+            Result() with { Ignored = [new IgnoredPackage("Empty", "1.0.0", "no valid bundled skills")] }, copied: true));
+        yield return ("install version warnings", Render(
+            Result() with { Warnings = [new PackageVersionWarning("A", ["1.0.0", "2.0.0"])] }, copied: true));
+        yield return ("install collision errors", RenderErrors(
+            Result() with { Errors = [new SkillCollision("shared", TwoSkills, "multiple package skills target the same destination")] }));
         yield return ("install with removals", Render(
             Result() with { Removed = [new TrackedSkill("Old.Package", "1.0.0", "old-skill")] },
             copied: true));
@@ -170,6 +176,14 @@ public class OutputLayoutTests
         using var output = new StringWriter();
         new OutputWriter(output).WriteInstallReport(result, copied);
         return output.ToString();
+    }
+
+    private static string RenderErrors(InstallResult result)
+    {
+        using var output = new StringWriter();
+        using var errors = new StringWriter();
+        new OutputWriter(output, errors).WriteInstallReport(result, copied: true);
+        return errors.ToString();
     }
 
     private static string RenderUninstall(IReadOnlyList<TrackedSkill> removed, bool dryRun, string? target = null)

@@ -10,8 +10,8 @@ public class InstallManifestTests
         {
           "version": 1,
           "packages": {
-            "alpha": { "version": "1.0.0", "skills": ["alpha"] },
-            "beta": { "version": "1.0.0", "skills": ["beta"] }
+            "alpha": { "versions": { "1.0.0": { "skills": ["alpha"] } } },
+            "beta": { "versions": { "1.0.0": { "skills": ["beta"] } } }
           }
         }
         """;
@@ -37,17 +37,23 @@ public class InstallManifestTests
             "  \"version\": 1,\n" +
             "  \"packages\": {\n" +
             "    \"contoso.widgets\": {\n" +
-            "      \"version\": \"2.3.0\",\n" +
-            "      \"skills\": [\n" +
-            "        \"contoso.widgets-usage\"\n" +
-            "      ]\n" +
+            "      \"versions\": {\n" +
+            "        \"2.3.0\": {\n" +
+            "          \"skills\": [\n" +
+            "            \"contoso.widgets-usage\"\n" +
+            "          ]\n" +
+            "        }\n" +
+            "      }\n" +
             "    },\n" +
             "    \"mockly\": {\n" +
-            "      \"version\": \"1.10.0\",\n" +
-            "      \"skills\": [\n" +
-            "        \"mockly-migration\",\n" +
-            "        \"mockly-usage\"\n" +
-            "      ]\n" +
+            "      \"versions\": {\n" +
+            "        \"1.10.0\": {\n" +
+            "          \"skills\": [\n" +
+            "            \"mockly-migration\",\n" +
+            "            \"mockly-usage\"\n" +
+            "          ]\n" +
+            "        }\n" +
+            "      }\n" +
             "    }\n" +
             "  }\n" +
             "}\n",
@@ -64,13 +70,13 @@ public class InstallManifestTests
         first.SetSkills(
         [
             new TrackedSkill("Mockly", "1.0.0-RC.1", "b"),
-            new TrackedSkill("Alpha", "2.0", "a"),
+            new TrackedSkill("Alpha", "2.0", "alpha"),
             new TrackedSkill("mockly", "1.0.0-rc.1", "a"),
         ]);
         var second = new InstallManifest();
         second.SetSkills(
         [
-            new TrackedSkill("alpha", "2.0.0", "a"),
+            new TrackedSkill("alpha", "2.0.0", "alpha"),
             new TrackedSkill("MOCKLY", "1.0.0-rc.1", "a"),
             new TrackedSkill("Mockly", "1.0.0-RC.1", "b"),
         ]);
@@ -105,25 +111,7 @@ public class InstallManifestTests
             ],
             loaded.EnumerateSkills());
         Assert.Equal(["contoso.widgets", "mockly"], loaded.Packages.Keys);
-        Assert.Equal("1.10.0", loaded.Packages["mockly"].Version);
-    }
-
-    [Fact]
-    public void One_package_cannot_be_recorded_at_two_versions()
-    {
-        var manifest = new InstallManifest();
-
-        var error = Assert.Throws<PackageSkillsException>(() => manifest.SetSkills(
-        [
-            new TrackedSkill("Mockly", "1.10.0", "mockly-usage"),
-            new TrackedSkill("mockly", "1.11.0", "mockly-testing"),
-        ]));
-
-        Assert.Contains("mockly", error.Message);
-        Assert.Contains("1.10.0", error.Message);
-        Assert.Contains("1.11.0", error.Message);
-        Assert.Contains("No skills were changed", error.Message);
-        Assert.Empty(manifest.EnumerateSkills());
+        Assert.Equal("1.10.0", Assert.Single(loaded.Packages["mockly"].Versions).Key);
     }
 
     [Theory]
@@ -139,7 +127,7 @@ public class InstallManifestTests
         var destination = temp.CreateDirectory("dest");
         var contents = $$$"""
             {"version":1,"packages":{
-              "mockly":{"version":"{{{version}}}","skills":["usage"]}
+              "mockly": { "versions": { "{{{version}}}": { "skills": ["usage"] } } }
             }}
             """;
         var path = temp.CreateFile("dest/.dotnet-package-skills.json", contents);
@@ -166,8 +154,9 @@ public class InstallManifestTests
             new TrackedSkill("mockly", "1.10-beta.1+Build.B", "second"),
         ]);
 
-        Assert.Equal("1.10.0-beta.1", manifest.Packages["mockly"].Version);
-        Assert.Equal(["first", "second"], manifest.Packages["mockly"].Skills);
+        var group = Assert.Single(manifest.Packages["mockly"].Versions);
+        Assert.Equal("1.10.0-beta.1", group.Key);
+        Assert.Equal(["first", "second"], group.Value.Skills);
     }
 
     [Theory]
@@ -204,8 +193,7 @@ public class InstallManifestTests
               "version": 1,
               "packages": {
                 "{{id}}": {
-                  "version": "1.0.0",
-                  "skills": ["usage"]
+                  "versions": { "1.0.0": { "skills": ["usage"] } }
                 }
               }
             }
@@ -251,7 +239,7 @@ public class InstallManifestTests
         var destination = temp.CreateDirectory("dest");
         temp.CreateFile(
             "dest/.dotnet-package-skills.json",
-            """{"Version":1,"Packages":{"Mockly":{"Version":"1.10.0","Skills":["mockly-usage"]}}}""");
+            """{"Version":1,"Packages":{"Mockly":{"Versions":{"1.10.0":{"Skills":["mockly-usage"]}}}}}""");
 
         Assert.Equal(
             new TrackedSkill("mockly", "1.10.0", "mockly-usage"),
@@ -270,7 +258,7 @@ public class InstallManifestTests
             {
               "version": 1,
               "comment": "not part of the format",
-              "packages": { "mockly": { "version": "1.10.0", "skills": ["mockly-usage"], "extra": true } }
+              "packages": { "mockly": { "versions": { "1.10.0": { "skills": ["mockly-usage"], "extra": true } }, "extra": true } }
             }
             """);
         temp.CreateFile("empty/.dotnet-package-skills.json", """{"version":1,"packages":{}}""");
@@ -344,10 +332,10 @@ public class InstallManifestTests
     [InlineData("""{"version":1,"packages":{"mockly":{"version":1,"skills":["a"]}}}""")]
     [InlineData("""{"version":1,"packages":{"mockly":{"version":"1.0.0"}}}""")]
     [InlineData("""{"version":1,"packages":{"mockly":{"version":"1.0.0","skills":"a"}}}""")]
-    [InlineData("""{"version":1,"packages":{"mockly":{"version":"1.0.0","skills":[null]}}}""")]
-    [InlineData("""{"version":1,"packages":{"mockly":{"version":"1.0.0","skills":["../outside"]}}}""")]
-    [InlineData("""{"version":1,"packages":{"alpha":{"version":"1.0.0","skills":["shared"]},"beta":{"version":"1.0.0","skills":["SHARED"]}}}""")]
-    [InlineData("""{"version":1,"packages":{"alpha":{"version":"1.0.0","skills":["shared","shared"]}}}""")]
+    [InlineData("""{"version":1,"packages":{"mockly":{"versions":{"1.0.0":{"skills":[null]}}}}}""")]
+    [InlineData("""{"version":1,"packages":{"mockly":{"versions":{"1.0.0":{"skills":["../outside"]}}}}}""")]
+    [InlineData("""{"version":1,"packages":{"alpha":{"versions":{"1.0.0":{"skills":["shared"]}}},"beta":{"versions":{"1.0.0":{"skills":["SHARED"]}}}}}""")]
+    [InlineData("""{"version":1,"packages":{"alpha":{"versions":{"1.0.0":{"skills":["shared","shared"]}}}}}""")]
     public void A_manifest_with_an_unusable_shape_fails_before_anything_uses_it(string contents)
     {
         using var temp = new TempDirectory();

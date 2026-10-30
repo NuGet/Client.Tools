@@ -8,8 +8,11 @@ namespace DotnetPackageSkills.Skills;
 /// <summary>One installed skill with its owning package metadata.</summary>
 public sealed record TrackedSkill(string Package, string Version, string Skill);
 
-/// <summary>The skills this tool installed from one package, and the one version they came from.</summary>
-public sealed record ManifestPackage(string Version, IReadOnlyList<string> Skills);
+/// <summary>The skills this tool installed from one exact package version.</summary>
+public sealed record ManifestPackageVersion(IReadOnlyList<string> Skills);
+
+/// <summary>Installed skills grouped by normalized package version.</summary>
+public sealed record ManifestPackage(IReadOnlyDictionary<string, ManifestPackageVersion> Versions);
 
 /// <summary>
 /// Record of what this tool put in the destination folder.
@@ -20,7 +23,7 @@ public sealed record ManifestPackage(string Version, IReadOnlyList<string> Skill
 /// destination, so hand-authored skills living alongside package-provided ones are never at risk.
 ///
 /// The layout follows <c>dotnet-tools.json</c>: a format <c>version</c>, then a <c>packages</c> map
-/// keyed by lowercase package id, each with the one version its skills came from. Repositories
+/// keyed by lowercase package id, each with a map of the versions its skills came from. Repositories
 /// commit this file, so the bytes are deterministic: sorted, normalized, and LF-only on every
 /// operating system.
 /// </remarks>
@@ -140,44 +143,62 @@ public sealed class InstallManifest
                 throw CannotRead(path, $"'packages.{id}' must be an object");
             }
 
-            if (!TryGetProperty(package.Value, "version", out var version) ||
-                version.ValueKind != JsonValueKind.String ||
-                string.IsNullOrWhiteSpace(version.GetString()))
+            if (!TryGetProperty(package.Value, "versions", out var versions))
             {
-                throw CannotRead(path, $"'packages.{id}.version' must be text");
+                throw TryGetProperty(package.Value, "version", out _) || TryGetProperty(package.Value, "skills", out _)
+                    ? WrittenByPreRelease(path)
+                    : CannotRead(path, $"'packages.{id}.versions' must be an object");
             }
 
-            if (!NuGetVersion.TryParse(version.GetString(), out _))
+            if (versions.ValueKind != JsonValueKind.Object)
             {
-                throw CannotRead(path, $"'packages.{id}.version' must be an exact NuGet version");
+                throw CannotRead(path, $"'packages.{id}.versions' must be an object");
             }
 
-            if (!TryGetProperty(package.Value, "skills", out var skills) || skills.ValueKind != JsonValueKind.Array)
+            var groups = new SortedDictionary<string, ManifestPackageVersion>(StringComparer.Ordinal);
+            foreach (var version in versions.EnumerateObject())
             {
-                throw CannotRead(path, $"'packages.{id}.skills' must be an array");
-            }
-
-            var names = new List<string>();
-            foreach (var skill in skills.EnumerateArray())
-            {
-                var name = skill.ValueKind == JsonValueKind.String ? skill.GetString() : null;
-
-                if (name is null || !SkillDiscovery.IsSafeSkillName(name))
+                if (!NuGetVersion.TryParse(version.Name, out _))
                 {
-                    throw CannotRead(
-                        path,
-                        $"'packages.{id}.skills[{names.Count}]' is not a safe skill folder name");
+                    throw CannotRead(path, $"'packages.{id}.versions.{version.Name}' must name an exact NuGet version");
                 }
 
-                if (!claimed.Add(name))
+                var normalized = PackagePathResolver.NormalizeVersion(version.Name);
+                if (groups.ContainsKey(normalized))
                 {
-                    throw CannotRead(path, $"the skill folder '{name}' is claimed more than once");
+                    throw CannotRead(path, $"the version '{id} {normalized}' appears more than once");
                 }
 
-                names.Add(name);
+                if (version.Value.ValueKind != JsonValueKind.Object ||
+                    !TryGetProperty(version.Value, "skills", out var skills) || skills.ValueKind != JsonValueKind.Array)
+                {
+                    throw CannotRead(path, $"'packages.{id}.versions.{version.Name}.skills' must be an array");
+                }
+
+                var names = new List<string>();
+                foreach (var skill in skills.EnumerateArray())
+                {
+                    var name = skill.ValueKind == JsonValueKind.String ? skill.GetString() : null;
+
+                    if (name is null || !SkillDiscovery.IsSafeSkillName(name))
+                    {
+                        throw CannotRead(
+                            path,
+                            $"'packages.{id}.versions.{version.Name}.skills[{names.Count}]' is not a safe skill folder name");
+                    }
+
+                    if (!claimed.Add(name))
+                    {
+                        throw CannotRead(path, $"the skill folder '{name}' is claimed more than once");
+                    }
+
+                    names.Add(name);
+                }
+
+                groups.Add(normalized, new ManifestPackageVersion(names.OrderBy(name => name, StringComparer.Ordinal).ToArray()));
             }
 
-            manifest._packages[id.ToLowerInvariant()] = new ManifestPackage(version.GetString()!, names);
+            manifest._packages[id.ToLowerInvariant()] = new ManifestPackage(groups);
         }
 
         return manifest;
@@ -279,15 +300,21 @@ public sealed class InstallManifest
             foreach (var (id, package) in _packages)
             {
                 writer.WriteStartObject(id);
-                writer.WriteString("version", package.Version);
-                writer.WriteStartArray("skills");
+                writer.WriteStartObject("versions");
 
-                foreach (var skill in package.Skills)
+                foreach (var (version, group) in package.Versions)
                 {
-                    writer.WriteStringValue(skill);
+                    writer.WriteStartObject(version);
+                    writer.WriteStartArray("skills");
+                    foreach (var skill in group.Skills)
+                    {
+                        writer.WriteStringValue(skill);
+                    }
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
                 }
 
-                writer.WriteEndArray();
+                writer.WriteEndObject();
                 writer.WriteEndObject();
             }
 
@@ -302,12 +329,14 @@ public sealed class InstallManifest
 
     internal IEnumerable<TrackedSkill> EnumerateSkills() =>
         _packages.SelectMany(package =>
-            package.Value.Skills.Select(skill => new TrackedSkill(package.Key, package.Value.Version, skill)));
+            package.Value.Versions.SelectMany(version =>
+                version.Value.Skills.Select(skill => new TrackedSkill(package.Key, version.Key, skill))));
 
     /// <summary>Replaces everything tracked. Nothing is kept if the skills break a manifest rule.</summary>
     internal void SetSkills(IEnumerable<TrackedSkill> skills)
     {
         var next = new SortedDictionary<string, ManifestPackage>(StringComparer.Ordinal);
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var group in skills.GroupBy(skill => skill.Package.ToLowerInvariant(), StringComparer.Ordinal))
         {
@@ -320,27 +349,28 @@ public sealed class InstallManifest
                     "No skills were changed.");
             }
 
-            var versions = group
-                .Select(skill => PackagePathResolver.NormalizeVersion(skill.Version))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-
-            if (versions.Count > 1)
+            var versions = new SortedDictionary<string, ManifestPackageVersion>(StringComparer.Ordinal);
+            foreach (var version in group.GroupBy(skill => PackagePathResolver.NormalizeVersion(skill.Version)))
             {
-                throw new PackageSkillsException(
-                    $"The install manifest can record only one version of each package, but skills from " +
-                    $"{group.Key} {string.Join(" and ", versions)} were about to be recorded. " +
-                    "No skills were changed.");
+                var names = version.Select(skill => skill.Skill)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                foreach (var name in names)
+                {
+                    if (!SkillDiscovery.IsSafeSkillName(name) || !claimed.Add(name))
+                    {
+                        throw new PackageSkillsException(
+                            $"The install manifest can't record skill folder '{name}' because it is unsafe or claimed more than once. " +
+                            "No skills were changed.");
+                    }
+                }
+
+                versions.Add(version.Key, new ManifestPackageVersion(names));
             }
 
-            next[group.Key] = new ManifestPackage(
-                versions[0],
-                [
-                    .. group
-                        .Select(skill => skill.Skill)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(skill => skill, StringComparer.Ordinal),
-                ]);
+            next[group.Key] = new ManifestPackage(versions);
         }
 
         _packages = next;

@@ -49,6 +49,9 @@ public sealed record InstallResult
 
     public IReadOnlyList<TrackedSkill> Removed { get; init; } = [];
     public IReadOnlyList<SkippedSkill> Skipped { get; init; } = [];
+    public IReadOnlyList<IgnoredPackage> Ignored { get; init; } = [];
+    public IReadOnlyList<PackageVersionWarning> Warnings { get; init; } = [];
+    public IReadOnlyList<SkillCollision> Errors { get; init; } = [];
 
     /// <summary>
     /// Installed skills whose package the target no longer references. Install keeps them, and
@@ -99,14 +102,10 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         // directory, and a repo-level config is exactly the case worth honouring.
         var globalPackages = LocateGlobalPackages(request, Path.GetDirectoryName(target));
 
-        // Keep every distinct (id, version) long enough to detect unsupported multi-version
-        // collisions explicitly rather than silently selecting one package from the solution.
+        // Every version can contribute distinct skills; keep the complete reference graph.
         var packages = new PackageLister(dotnet).List(target);
 
-        var (skills, skipped, candidates) = Collect(globalPackages, packages.Select(p => (p.Id, p.Version)));
-
-        return Build(request, target, globalPackages, packages.Count, skills, skipped)
-            with { ResolvedPackages = packages, AllCandidates = candidates };
+        return Build(request, target, globalPackages, packages);
     }
 
     private InstallResult DiscoverFromCoordinates(InstallRequest request)
@@ -118,16 +117,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             request,
             resolutionTarget is null ? request.WorkingDirectory : Path.GetDirectoryName(resolutionTarget));
 
-        var (skills, skipped, candidates) = Collect(
-            globalPackages,
-            packages.Select(coordinate => (coordinate.Id, coordinate.Version)));
-
-        var result = Build(request, target: null, globalPackages, packages.Length, skills, skipped);
-        return result with
-        {
-            ResolvedPackages = packages,
-            AllCandidates = candidates,
-        };
+        return Build(request, target: null, globalPackages, packages);
     }
 
     private (IReadOnlyList<PackageReferenceInfo> Packages, string? Target) ResolveCoordinates(InstallRequest request)
@@ -154,7 +144,9 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                     continue;
                 }
 
-                version = tracked.Version;
+                packages.AddRange(tracked.Versions.Keys.Select(trackedVersion =>
+                    new PackageReferenceInfo(package.Id, trackedVersion)));
+                continue;
             }
 
             packages.Add(new PackageReferenceInfo(package.Id, version));
@@ -205,16 +197,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                     "Specify ID@VERSION to choose an exact version. No skills were changed.");
             }
 
-            if (versions.Count > 1)
-            {
-                throw new PackageSkillsException(
-                    $"Package '{package.Id}' resolves to more than one version in target '{target}': " +
-                    $"{string.Join(", ", versions.Select(candidate => candidate.Version))}. " +
-                    "Narrow --source to a project that resolves one version, or specify ID@VERSION. " +
-                    "No skills were changed.");
-            }
-
-            packages.Add(new PackageReferenceInfo(package.Id, versions[0].Version));
+            packages.AddRange(versions.Select(version => new PackageReferenceInfo(package.Id, version.Version)));
         }
 
         return (packages, target);
@@ -235,16 +218,15 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     /// that ships no skills. Extracting packages is restore's job, not this tool's. Only a target
     /// install checks for missing packages, because it would otherwise report their skills as stale.
     /// </remarks>
-    private static (List<BundledSkill> Skills, List<SkippedSkill> Skipped, List<BundledSkill> Candidates) Collect(
+    private static (List<BundledSkill> Candidates, List<IgnoredPackage> Ignored) Collect(
         string globalPackages,
-        IEnumerable<(string Id, string Version)> packages)
+        IReadOnlyList<PackageReferenceInfo> packages)
     {
-        var skills = new List<BundledSkill>();
-        var skipped = new List<SkippedSkill>();
         var candidates = new List<BundledSkill>();
-        var destinations = new Dictionary<string, BundledSkill>(StringComparer.OrdinalIgnoreCase);
+        var ignored = new List<IgnoredPackage>();
 
-        foreach (var (id, version) in packages)
+        foreach (var (id, version) in packages.OrderBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(package => PackagePathResolver.NormalizeVersion(package.Version), StringComparer.Ordinal))
         {
             var packageDirectory = PackagePathResolver.Resolve(globalPackages, id, version);
 
@@ -253,44 +235,52 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                 continue;
             }
 
-            foreach (var skill in SkillDiscovery.Discover(packageDirectory, id, version))
+            var skills = SkillDiscovery.Discover(packageDirectory, id, version);
+            candidates.AddRange(skills);
+            if (skills.Count == 0)
             {
-                candidates.Add(skill);
-                if (destinations.TryAdd(skill.RelativePath, skill))
-                {
-                    skills.Add(skill);
-                    continue;
-                }
-
-                var retained = destinations[skill.RelativePath];
-                skipped.Add(ToSkipped(
-                    skill,
-                    $"conflicts with {retained.PackageId} {retained.PackageVersion} skill " +
-                    $"'{retained.SkillName}', which was selected first"));
+                ignored.Add(new IgnoredPackage(id, PackagePathResolver.NormalizeVersion(version), "no valid bundled skills"));
             }
         }
 
-        return (skills, skipped, candidates);
+        return (candidates, ignored);
     }
 
     private static InstallResult Build(
         InstallRequest request,
         string? target,
         string globalPackages,
-        int packagesScanned,
-        IReadOnlyList<BundledSkill> skills,
-        IReadOnlyList<SkippedSkill> skipped) =>
-        new()
+        IReadOnlyList<PackageReferenceInfo> packages)
+    {
+        var (candidates, ignored) = Collect(globalPackages, packages);
+        var classified = SkillCandidateClassifier.Classify(candidates);
+        var warnings = candidates
+            .GroupBy(skill => skill.PackageId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new PackageVersionWarning(
+                group.First().PackageId,
+                group.Select(skill => PackagePathResolver.NormalizeVersion(skill.PackageVersion))
+                    .Distinct(StringComparer.Ordinal).OrderBy(version => version, StringComparer.Ordinal).ToArray()))
+            .Where(warning => warning.Versions.Count > 1)
+            .OrderBy(warning => warning.PackageId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return new InstallResult
         {
             Target = target,
             GlobalPackagesFolder = globalPackages,
             Destination = Path.GetFullPath(request.Destination, request.WorkingDirectory),
-            PackagesScanned = packagesScanned,
+            PackagesScanned = packages.Count,
             DryRun = request.DryRun,
-            Skills = skills,
-            SkillsDiscovered = skills.Count,
-            Skipped = skipped,
+            Skills = classified.Valid,
+            SkillsDiscovered = candidates.Count,
+            Skipped = classified.Skipped,
+            Ignored = ignored,
+            Warnings = warnings,
+            Errors = classified.Collisions,
+            ResolvedPackages = packages,
+            AllCandidates = candidates,
         };
+    }
 
     /// <summary>Discovers bundled skills and copies them into the destination.</summary>
     public InstallResult Install(InstallRequest request) => Install(request, Discover(request), choice: null);
@@ -301,26 +291,29 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     /// </summary>
     public InstallResult Install(InstallRequest request, InstallResult discovered, SkillChoice? choice)
     {
-        RequireOneVersionPerPackage(request, discovered);
-
         if (request.Packages.Count == 0)
         {
             RequireEveryPackageInDirectory(discovered);
         }
 
         // A choice only adds: it never refreshes or removes what it was not asked about. Without
-        // one, the run covers packages found in the NuGet global-packages directory, so a version
-        // that is not there never causes a removal.
+        // one, cleanup requires inspecting every selected version of a package: a cache gap
+        // cannot establish that the package stopped shipping an installed skill.
         var offered = choice is null
             ? discovered.ResolvedPackages
-                .Where(package => PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, package.Id, package.Version) is not null)
                 .GroupBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().Version, StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                .Where(group => group.All(package =>
+                    PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, package.Id, package.Version) is not null))
+                .ToDictionary(group => group.Key,
+                    group => (IReadOnlyCollection<string>)group.Select(package => package.Version).ToArray(),
+                    StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
 
         var outcome = installer.Install(
             discovered.Destination,
-            choice?.Selected ?? discovered.AllCandidates ?? discovered.Skills,
+            choice is null
+                ? discovered.AllCandidates ?? discovered.Skills
+                : discovered.Skills.Where(skill => choice.Selected.Contains(skill)).ToArray(),
             request.DryRun,
             offered,
             choice?.ExpectedInstalled);
@@ -330,52 +323,16 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             DryRun = request.DryRun,
             Skills = outcome.Installed,
             Removed = outcome.Removed,
-            Skipped = discovered.AllCandidates is null
-                ? [.. discovered.Skipped, .. outcome.Skipped]
-                : outcome.Skipped,
+            Skipped = [.. discovered.Skipped.Concat(outcome.Skipped).DistinctBy(skill =>
+                (skill.PackageId.ToLowerInvariant(), PackagePathResolver.NormalizeVersion(skill.PackageVersion),
+                    skill.RelativePath, skill.SkillName))],
+            Errors = [.. discovered.Errors.Concat(outcome.Errors)
+                .DistinctBy(error => error.RelativePath, StringComparer.OrdinalIgnoreCase)],
             // A target lists every package it references, so anything it did not offer has left
             // the project. Named packages say nothing about the rest, so they report nothing.
             Unreferenced = request.Packages.Count == 0 && choice is null ? outcome.Untouched : [],
             AllCandidates = null,
         };
-    }
-
-    /// <summary>
-    /// Stops an install when a package has more than one version, whether or not it ships skills.
-    /// </summary>
-    /// <remarks>
-    /// The manifest records one version per package, and skills describe the version they came
-    /// from. With two versions there is no right answer for which guidance the repository gets,
-    /// so rather than guess, ask for the versions to be aligned. Central Package Management keeps
-    /// them aligned. <see cref="Discover"/> does not check this, so <c>list</c> still shows both.
-    /// </remarks>
-    private static void RequireOneVersionPerPackage(InstallRequest request, InstallResult discovered)
-    {
-        var conflicts = discovered.ResolvedPackages
-            .GroupBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(group => (
-                group.First().Id,
-                Versions: group
-                    .DistinctBy(package => PackagePathResolver.NormalizeVersion(package.Version))
-                    .Select(package => package.Version)
-                    .ToList()))
-            .Where(entry => entry.Versions.Count > 1)
-            .Select(entry => $"{entry.Id} ({string.Join(", ", entry.Versions)})")
-            .ToList();
-
-        if (conflicts.Count == 0)
-        {
-            return;
-        }
-
-        throw new PackageSkillsException(request.Packages.Count == 0
-            ? "Cannot install skills because these packages resolve to more than one version: " +
-              $"{string.Join("; ", conflicts)}. Skills can come from only one version of each package. " +
-              "Align the versions, for example with Central Package Management, and then try again. " +
-              "No skills were changed."
-            : "Cannot install skills because --package names more than one version of these packages: " +
-              $"{string.Join("; ", conflicts)}. Skills can come from only one version of each package, " +
-              "so name one version per package, and then try again. No skills were changed.");
     }
 
     /// <summary>
@@ -413,31 +370,23 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     /// <remarks>
     /// An interactive install only adds, so it cannot settle a mismatch between the installed
     /// skills and the packages. With a target, any stale skill stops it until
-    /// <c>uninstall --stale</c> removes them. With named packages, an installed skill from
-    /// another version of one of them stops it, because adding beside it would give that
-    /// package two versions.
+    /// <c>uninstall --stale</c> removes them. Named packages can add disjoint skills from another
+    /// version without changing existing ownership.
     /// </remarks>
     internal InstallResult PrepareInteractiveInstall(
         InstallRequest request,
         InstallResult discovered,
         IReadOnlyCollection<TrackedSkill> installed)
     {
-        RequireOneVersionPerPackage(request, discovered);
-
         if (request.Packages.Count == 0)
         {
             RequireEveryPackageInDirectory(discovered);
             RequireNoStaleSkills(discovered, installed);
         }
-        else
-        {
-            RequireNoOtherInstalledVersion(discovered, installed);
-        }
-
         var preview = Install(
             request with { DryRun = true },
             discovered,
-            new SkillChoice(discovered.AllCandidates ?? discovered.Skills) { ExpectedInstalled = installed });
+            new SkillChoice(discovered.Skills) { ExpectedInstalled = installed });
         var tracked = installed.Select(entry => entry.Skill).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return preview with
@@ -466,31 +415,6 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             $"{(stale.Count == 1 ? "skill doesn't" : "skills don't")} match the target: " +
             $"{string.Join(", ", stale.Select(entry => $"{entry.Skill} ({entry.Package} {entry.Version})"))}. " +
             StaleSkillAdvice + " Then try again. " +
-            "No skills were changed.");
-    }
-
-    private static void RequireNoOtherInstalledVersion(
-        InstallResult discovered,
-        IReadOnlyCollection<TrackedSkill> installed)
-    {
-        var conflicts = discovered.ResolvedPackages
-            .Select(package => (
-                package.Id,
-                Installed: installed.FirstOrDefault(entry =>
-                    entry.Package.Equals(package.Id, StringComparison.OrdinalIgnoreCase) &&
-                    !SkillInstaller.SameVersion(entry.Version, package.Version))))
-            .Where(conflict => conflict.Installed is not null)
-            .ToList();
-
-        if (conflicts.Count == 0)
-        {
-            return;
-        }
-
-        throw new PackageSkillsException(
-            $"{string.Join(" and ", conflicts.Select(conflict => $"{conflict.Id} {conflict.Installed!.Version}"))} " +
-            $"{(conflicts.Count == 1 ? "is" : "are")} already installed, and an interactive install only adds " +
-            "skills, so it can't change a package's version. " + SkillInstaller.PackageConflictAdvice + " " +
             "No skills were changed.");
     }
 
@@ -550,13 +474,6 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         return new TargetReferences(resolved, new PackageLister(dotnet).List(resolved));
     }
 
-    private static SkippedSkill ToSkipped(BundledSkill skill, string reason) =>
-        new(
-            skill.RelativePath,
-            skill.PackageId,
-            skill.PackageVersion,
-            skill.SkillName,
-            reason);
 }
 
 /// <summary>A solution or project and the package versions it references directly.</summary>

@@ -127,7 +127,7 @@ public class InteractiveSkillsTests
             destination,
             choice.Selected,
             dryRun: false,
-            offered: new Dictionary<string, string>(),
+            offered: new Dictionary<string, IReadOnlyCollection<string>>(),
             expectedInstalled: choice.ExpectedInstalled);
 
         Assert.Equal("fresh", Assert.Single(items).Name);

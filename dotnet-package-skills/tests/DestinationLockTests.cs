@@ -36,7 +36,7 @@ public class DestinationLockTests
                         destination,
                         [],
                         dryRun: false,
-                        offered: new Dictionary<string, string> { ["Alpha"] = "2.0.0" });
+                        offered: new Dictionary<string, IReadOnlyCollection<string>> { ["Alpha"] = ["2.0.0"] });
                 }
             }
             catch (Exception error)

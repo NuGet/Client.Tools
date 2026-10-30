@@ -11,21 +11,19 @@ public sealed record InstallOutcome(
 {
     /// <summary>Tracked skills whose package this run did not offer. They were left exactly as they were.</summary>
     public IReadOnlyList<TrackedSkill> Untouched { get; init; } = [];
+    public IReadOnlyList<SkillCollision> Errors { get; init; } = [];
 }
 
 /// <summary>Copies discovered skills into the destination and keeps the manifest in step.</summary>
 public sealed class SkillInstaller
 {
-    internal const string PackageConflictAdvice =
-        "Use uninstall with --package to remove skills for the conflicting packages, then try again.";
-
     /// <summary>
     /// Copies every skill into <paramref name="destinationRoot"/>, refreshing the ones this tool
     /// already installed.
     /// </summary>
     /// <param name="offered">
-    /// The version this run installs from for each package it covers, by package id. A tracked
-    /// skill is removed only when its package is offered at a different version that no longer
+    /// The inspected versions for each package this run covers, by package id. A tracked
+    /// skill is removed only when its owning version is no longer offered and its package no longer
     /// ships it, which is what lets an upgrade drop a skill instead of keeping a stale copy.
     /// Tracked skills of packages that are not offered are left alone and reported as
     /// untouched: a package leaving the project is not a reason to delete its skills here, and
@@ -36,41 +34,59 @@ public sealed class SkillInstaller
         string destinationRoot,
         IReadOnlyList<BundledSkill> skills,
         bool dryRun,
-        IReadOnlyDictionary<string, string>? offered = null,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? offered = null,
         IReadOnlyCollection<TrackedSkill>? expectedInstalled = null)
     {
         // Package ids compare without regard to case, whatever comparer the caller's map uses:
         // the manifest spells them in lowercase, and packages keep NuGet's casing.
-        var versions = offered is null
-            ? skills
+        var offers = offered ?? skills
                 .GroupBy(skill => skill.PackageId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().PackageVersion, StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, string>(offered, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var version in versions.Values) { PackageCoordinate.ParseVersion(version); }
+                .ToDictionary(group => group.Key,
+                    group => (IReadOnlyCollection<string>)group.Select(skill => skill.PackageVersion).ToArray(),
+                    StringComparer.OrdinalIgnoreCase);
+        var versions = offers.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Select(PackagePathResolver.NormalizeVersion).ToHashSet(StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase);
+        bool VersionWasReplaced(TrackedSkill entry) =>
+            versions.TryGetValue(entry.Package, out var offeredVersions) && !offeredVersions.Contains(entry.Version);
 
         using var destinationLock = DestinationLock.Acquire(destinationRoot);
         var manifest = InstallManifest.Load(destinationRoot);
         var trackedSkills = manifest.EnumerateSkills().ToList();
         CheckOwnershipSnapshot(trackedSkills, expectedInstalled);
-        var (selected, duplicateSkips) = SelectUniqueDestinations(skills, trackedSkills);
+        var classification = SkillCandidateClassifier.Classify(skills);
         var accepted = new List<BundledSkill>();
-        var skipped = new List<SkippedSkill>(duplicateSkips);
-        var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var skipped = new List<SkippedSkill>(classification.Skipped);
+        var errors = new List<SkillCollision>(classification.Collisions);
+        var protectedPaths = classification.Collisions
+            .Select(collision => collision.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var blockedFiles = new List<TrackedSkill>();
         var reusableDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var skill in selected)
+        foreach (var skill in classification.Valid)
         {
             var tracked = trackedSkills.FirstOrDefault(entry =>
                 entry.Skill.Equals(skill.RelativePath, StringComparison.OrdinalIgnoreCase));
             var destination = ToAbsolute(destinationRoot, skill.RelativePath);
 
+            if (tracked is not null && !HasSameOwner(tracked, skill))
+            {
+                var reason = $"the destination folder is managed for {tracked.Package} {tracked.Version} " +
+                             $"skill '{tracked.Skill}'; use uninstall with --package to remove the current owner's skills " +
+                             "before replacing it";
+                skipped.Add(SkillCandidateClassifier.ToSkipped(skill, reason));
+                errors.Add(new SkillCollision(skill.RelativePath, [skill], reason));
+                protectedPaths.Add(tracked.Skill);
+                continue;
+            }
+
             if (File.Exists(destination))
             {
-                skipped.Add(ToSkipped(skill, "the destination path already exists as a file"));
+                skipped.Add(SkillCandidateClassifier.ToSkipped(skill, "the destination path already exists as a file"));
                 if (tracked is not null)
                 {
                     protectedPaths.Add(tracked.Skill);
+                    if (VersionWasReplaced(tracked)) { blockedFiles.Add(tracked); }
                 }
 
                 continue;
@@ -82,7 +98,7 @@ public sealed class SkillInstaller
             {
                 if (!IsReusableEmptyDirectory(destinationDirectory))
                 {
-                    skipped.Add(ToSkipped(
+                    skipped.Add(SkillCandidateClassifier.ToSkipped(
                         skill,
                         "the destination folder already exists and is not managed by this tool"));
                     continue;
@@ -91,47 +107,12 @@ public sealed class SkillInstaller
                 reusableDestinations.Add(skill.RelativePath);
             }
 
-            if (tracked is not null && !HasSameOwner(tracked, skill))
-            {
-                skipped.Add(ToSkipped(
-                    skill,
-                    $"the destination folder is managed for {tracked.Package} {tracked.Version} " +
-                    $"skill '{tracked.Skill}'; use uninstall with --package to remove the current owner's skills " +
-                    "before replacing it"));
-                protectedPaths.Add(tracked.Skill);
-                continue;
-            }
-
             accepted.Add(skill);
         }
 
-        var crossVersionProtected = trackedSkills
-            .Where(entry => protectedPaths.Contains(entry.Skill))
-            .Where(entry => versions.TryGetValue(entry.Package, out var version) && !SameVersion(version, entry.Version))
-            .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
-            .ToList();
-
-        var blockedReplacements = crossVersionProtected
-            .Where(entry => skills.Any(skill => HasSameOwner(entry, skill)))
-            .Where(entry => !accepted.Any(skill => HasSameOwner(entry, skill)))
-            .ToList();
-
-        if (blockedReplacements.Count > 0)
+        if (blockedFiles.Count > 0)
         {
-            throw CannotReplaceTrackedSkills(blockedReplacements, versions);
-        }
-
-        // A package moving to a version without one of its skills normally loses that skill.
-        // When another package in this run ships a skill of the same name, removing it would
-        // hand the name to that package, which takes an explicit uninstall. Keeping it would
-        // record the old version's copy under the new version, where no later run removes it.
-        var stranded = crossVersionProtected
-            .Where(entry => !accepted.Any(skill => HasSameOwner(entry, skill)))
-            .ToList();
-
-        if (stranded.Count > 0)
-        {
-            throw NameWouldChangeOwner(stranded, versions, selected);
+            throw CannotReplaceTrackedSkills(blockedFiles, versions);
         }
 
         var current = accepted.Select(skill => skill.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -139,7 +120,7 @@ public sealed class SkillInstaller
         // A skill involved in a conflict is never removed by the same run.
         var removed = trackedSkills
             .Where(entry => !current.Contains(entry.Skill) && !protectedPaths.Contains(entry.Skill))
-            .Where(entry => versions.TryGetValue(entry.Package, out var version) && !SameVersion(version, entry.Version))
+            .Where(VersionWasReplaced)
             .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
             .ToList();
         var removedPaths = removed.Select(entry => ToAbsolute(destinationRoot, entry.Skill)).ToList();
@@ -159,11 +140,9 @@ public sealed class SkillInstaller
             }
         }
 
-        // What stays tracked keeps its entry, moved to the offered version when its package has
-        // one: the manifest records a single version per package, the one this run installed.
+        // Skipped paths keep their exact ownership, even when that version is no longer offered.
         var kept = trackedSkills
-            .Where(entry => !current.Contains(entry.Skill) && !removed.Contains(entry))
-            .Select(entry => versions.TryGetValue(entry.Package, out var version) ? entry with { Version = version } : entry);
+            .Where(entry => !current.Contains(entry.Skill) && !removed.Contains(entry));
         var installed = accepted.Select(skill =>
             new TrackedSkill(skill.PackageId, skill.PackageVersion, skill.SkillName));
 
@@ -171,7 +150,7 @@ public sealed class SkillInstaller
         // manifest rule stops the operation while the destination is still unchanged.
         manifest.SetSkills(kept.Concat(installed));
 
-        var outcome = new InstallOutcome(accepted, removed, skipped) { Untouched = untouched };
+        var outcome = new InstallOutcome(accepted, removed, skipped) { Untouched = untouched, Errors = errors };
 
         if (dryRun)
         {
@@ -213,41 +192,19 @@ public sealed class SkillInstaller
 
     private static PackageSkillsException CannotReplaceTrackedSkills(
         IReadOnlyList<TrackedSkill> blocked,
-        IReadOnlyDictionary<string, string> versions)
+        IReadOnlyDictionary<string, HashSet<string>> versions)
     {
         string OwnerId(TrackedSkill entry) =>
             versions.Keys.First(id => id.Equals(entry.Package, StringComparison.OrdinalIgnoreCase));
 
         var reasons = blocked.Select(entry =>
-            $"{OwnerId(entry)} {versions[entry.Package]} cannot replace installed skill '{entry.Skill}' " +
+            $"{OwnerId(entry)} {string.Join(", ", versions[entry.Package].OrderBy(version => version, StringComparer.Ordinal))} " +
+            $"cannot replace installed skill '{entry.Skill}' " +
             "because its destination path is a file");
         return new PackageSkillsException(
             $"Cannot install skills because {string.Join("; ", reasons)}. " +
             "Remove or rename each blocking file, or use uninstall with --package to remove the package's " +
             "installed skills, then try again. No skills were changed.");
-    }
-
-    private static PackageSkillsException NameWouldChangeOwner(
-        IReadOnlyList<TrackedSkill> stranded,
-        IReadOnlyDictionary<string, string> versions,
-        IReadOnlyList<BundledSkill> selected)
-    {
-        // The offered map keeps NuGet's casing, which reads better than the manifest's.
-        string OwnerId(TrackedSkill entry) =>
-            versions.Keys.First(id => id.Equals(entry.Package, StringComparison.OrdinalIgnoreCase));
-
-        var reasons = stranded.Select(entry =>
-        {
-            var other = selected.FirstOrDefault(skill =>
-                skill.RelativePath.Equals(entry.Skill, StringComparison.OrdinalIgnoreCase));
-            return $"{OwnerId(entry)} {versions[entry.Package]} no longer ships the installed skill '{entry.Skill}', " +
-                   $"and {(other is null ? "another package" : $"{other.PackageId} {other.PackageVersion}")} " +
-                   "ships a skill with that name";
-        });
-        return new PackageSkillsException(
-            $"Cannot install skills because {string.Join("; ", reasons)}. The tool doesn't hand an installed " +
-            "skill to another package, and the manifest records one version per package, so it can't keep the " +
-            "older copy either. " + PackageConflictAdvice + " No skills were changed.");
     }
 
     /// <summary>
@@ -465,49 +422,8 @@ public sealed class SkillInstaller
         }
     }
 
-    private static (List<BundledSkill> Selected, List<SkippedSkill> Skipped) SelectUniqueDestinations(
-        IReadOnlyList<BundledSkill> skills,
-        IReadOnlyList<TrackedSkill> installed)
-    {
-        var selected = new List<BundledSkill>();
-        var skipped = new List<SkippedSkill>();
-        foreach (var group in skills.GroupBy(skill => skill.RelativePath, StringComparer.OrdinalIgnoreCase))
-        {
-            var candidates = group.ToList();
-            var owner = installed.FirstOrDefault(entry => entry.Skill.Equals(group.Key, StringComparison.OrdinalIgnoreCase));
-            var retainedIndex = owner is null ? 0 : candidates.FindIndex(skill => HasSameOwner(owner, skill));
-            retainedIndex = Math.Max(0, retainedIndex);
-            var retained = candidates[retainedIndex];
-            selected.Add(retained);
-            for (var index = 0; index < candidates.Count; index++)
-            {
-                if (index == retainedIndex)
-                {
-                    continue;
-                }
-
-                skipped.Add(ToSkipped(
-                    candidates[index],
-                    $"conflicts with {retained.PackageId} {retained.PackageVersion} skill " +
-                    $"'{retained.SkillName}', " +
-                    (owner is not null && HasSameOwner(owner, retained)
-                        ? "which belongs to the current owner"
-                        : "which was selected first")));
-            }
-        }
-
-        return (selected, skipped);
-    }
-
     internal static bool HasSameOwner(TrackedSkill entry, BundledSkill skill) =>
         entry.Package.Equals(skill.PackageId, StringComparison.OrdinalIgnoreCase) &&
         entry.Skill.Equals(skill.SkillName, StringComparison.OrdinalIgnoreCase);
 
-    private static SkippedSkill ToSkipped(BundledSkill skill, string reason) =>
-        new(
-            skill.RelativePath,
-            skill.PackageId,
-            skill.PackageVersion,
-            skill.SkillName,
-            reason);
 }

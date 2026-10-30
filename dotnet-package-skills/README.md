@@ -64,18 +64,18 @@ the destination manifest and a target.
 dotnet-package-skills install                              # auto-detect solution or project
 dotnet-package-skills install --source src/MyApp.slnx      # a specific solution or project
 dotnet-package-skills install --package Mockly@1.10.0      # exact packages, no project needed
-dotnet-package-skills list --package Mockly                # manifest version, then auto-detected target
-dotnet-package-skills install -p Mockly -s src/MyApp.slnx  # manifest version, then this source
+dotnet-package-skills list --package Mockly                # manifest versions, then auto-detected target
+dotnet-package-skills install -p Mockly -s src/MyApp.slnx  # manifest versions, then this source
 ```
 
 `-p` and `--package` accept `ID` or `ID@VERSION` for install and list. Package IDs are matched
-without regard to case. For each bare ID, the tool first uses the exact version recorded in the
+without regard to case. For each bare ID, the tool first uses all exact versions recorded in the
 selected destination's `.dotnet-package-skills.json`. Use `--destination` to select a different
 manifest. If that valid manifest does not track the ID, the tool resolves a target: the one from
 `--source`, or the solution or project it auto-detects under the current directory. It runs
-`dotnet list <target> package --format json` and uses the package's resolved direct version.
-Repeated appearances at the same normalized version across projects are one match. Different
-resolved versions are ambiguous: narrow `--source` to one project, or specify `ID@VERSION`.
+`dotnet list <target> package --no-restore --format json` and uses all of the package's resolved direct
+versions. Repeated appearances at the same normalized version across projects are one match.
+Use `ID@VERSION` when you want only one version.
 
 `--package` is repeatable. A supplied version must be **exact**. The tool refuses `Mockly@1.*`
 and `Mockly@[1.0,2.0)`. Resolving a range means picking one version from it, and the only correct
@@ -92,9 +92,8 @@ The tool never chooses a version by scanning the NuGet global-packages directory
 NuGet's version parser checks exact versions, including the older one-, two-, and four-part
 forms. Invalid prerelease or metadata labels are rejected. Package comparisons normalize
 padding and letter case and ignore build metadata, so `1.10` and `1.10.0+build.1` identify the
-same release. Reports retain an explicit version's original text, or show the tracked version
-when you supply a bare ID. Equivalent explicit, manifest-resolved, and target-resolved selections
-are inspected only once.
+same release. Ownership records use normalized versions. Equivalent explicit,
+manifest-resolved, and target-resolved selections are inspected only once.
 
 When you name packages explicitly, the tool touches only the packages you name. It leaves every
 other installed skill alone. Using a target to resolve a bare `--package` ID does not turn that
@@ -104,18 +103,32 @@ skills belong to a package that the project no longer references. When a package
 target resolves is missing from the NuGet global-packages directory, `install` stops before it
 changes anything. Restore the project first, and then try again.
 
-The tool expects one version of each package.
-[Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management)
-gives a repository that guarantee. When the target resolves a package to two versions, or when
-`--package` names a package twice at two versions, `install` stops without changing anything. It
-names the versions that you need to align.
+For named selections, a missing extracted version is not evidence that it is skill-free or
+that its installed skills should be removed. Available versions can still install skills, but
+dropped-skill cleanup for that package waits until every selected version can be inspected.
+
+Multiple versions of a package are allowed. The tool classifies the skills, not just the package
+versions:
+
+| Packages discovered | Installation result |
+| --- | --- |
+| Multiple versions without valid bundled skills | Ignore and report those versions; no error or multi-version warning. |
+| One skill-bearing version and other skill-free versions | Install the valid skills and report the ignored versions. |
+| Multiple skill-bearing versions with different skill names | Install all their skills and warn about the versions. |
+| Two or more candidates with the same destination name | Skip every colliding candidate, report an error, and install the other valid skills. |
+
+These rules apply within one package ID and across different packages. A warning identifies
+only versions that actually contribute discovered skills. A missing extracted package is not
+classified as skill-free. Central Package Management can help coordinate dependencies, but
+different projects and target frameworks can legitimately resolve different versions.
 
 ### Keep skills in step with the project
 
 When a package moves to a new version, `install` copies that version's skills over the old
-copies. It removes any skill that the new version no longer ships. The manifest records one
-version for each package, so the manifest always states which release the installed guidance
-describes.
+copies. If the old owning version is no longer offered, it removes skills that the replacement
+no longer ships. With multiple offered versions, each installed skill retains its actual source
+version. A colliding skill keeps its existing files and ownership unchanged, even if its old
+version is no longer offered.
 
 When a package leaves the project, `install` keeps its skills and lists them:
 
@@ -133,7 +146,7 @@ your uninstall.
 A package reference can disappear for a moment, for example halfway through a refactor. Because
 of this, removing skills is always a command that you run on purpose. `uninstall --stale` removes
 every **stale** skill. A stale skill is one whose package the target no longer references, or
-whose package the target references at a different version. Preview this removal with
+whose exact owning version is no longer among the versions the target references. Preview this removal with
 `--dry-run`, or pick among the stale skills yourself with `--interactive`:
 
 ```bash
@@ -147,7 +160,7 @@ added with `install --package`, for a package outside the project, also counts a
 
 ### Choose which skills to install
 
-By default, `install` copies every skill that it finds. Add `--interactive` to choose which new
+By default, `install` copies every unambiguous skill that it finds. Add `--interactive` to choose which new
 skills to add:
 
 ```bash
@@ -184,22 +197,25 @@ a skill and never removes a skill. Run `install` without `--interactive` to refr
 `uninstall` to remove a skill. When the packages ship only skills that are already installed, the
 command prints `Nothing new to install.` and does not open the checklist. A skill that the tool
 cannot add, for example because its name is already taken by another package or by a folder you
-wrote yourself, is not listed. The report names these skills under its skipped warning instead.
+wrote yourself, is not listed. The report names these skills in its skipped section. Incoming
+candidate collisions and conflicts with a different installed package owner are errors;
+unmanaged-destination skips remain warnings.
 
 Adding a skill makes sense only when the installed skills already match the packages. Because of
 this, an interactive install stops before the checklist opens, and changes nothing, in these
 cases:
 
-- The full target resolves a package to more than one version, a bare `--package` ID is ambiguous
-  in its resolution target, or the selectors choose more than one version of a package.
 - With a full target (no `--package`), a resolved package is missing from the NuGet
   global-packages directory.
 - With a full target (no `--package`), an installed skill is stale. Use uninstall with `--stale`
   first.
-- With `--package`, a named package is installed at a different version. Use uninstall with
-  `--package` to remove that package's installed skills first. You can also run
-  `install --package <ID>@<VERSION>` without `--interactive` to move the package to its new
-  version.
+
+Different installed and offered versions alone do not block the picker. With `--package`, you
+can add a disjoint skill from a new version while retaining installed skills from an older
+version. The picker never offers colliding candidates or refreshes an installed name.
+After acceptance, collision errors remain in the final report and the command returns 1;
+cancellation returns 0 without writes. When no valid new candidates remain, the tool reports
+the skips and errors without opening a picker.
 
 Each description follows the authored skill name right after ` - `. There is no padded column and
 no package or version suffix. The tool keeps any package prefix in an authored name. A
@@ -299,22 +315,23 @@ Add `--dry-run` to see the outcome without it happening. Descriptions come from 
 copies, not from the NuGet global-packages directory. A missing or damaged `SKILL.md` does not
 block removal of a manifest-owned skill. Package matching ignores letter case. Both modes normalize version filters,
 so `1.10` matches `1.10.0`. A blank, missing, or repeated `--package` value on `uninstall` is an
-error. It never broadens the command to an unfiltered uninstall. `--stale` and `--package` cannot
-combine.
+error. It never broadens the command to an unfiltered uninstall. A bare ID removes all tracked
+versions of that package; `ID@VERSION` removes only that version's skills. `--stale` and
+`--package` cannot combine.
 
 ### Options
 
 | Option | Applies to | Description |
 | --- | --- | --- |
 | `-s, --source <PATH>` | install, list | Solution, project, or directory to read package references from, including to resolve bare package IDs that the manifest does not track. Defaults to searching the current directory. |
-| `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID uses the destination manifest first, then `--source` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
+| `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID expands all destination-manifest versions first, otherwise all versions from `--source` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
 | `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
 | `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
 | `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. A relative path is resolved from the invocation directory. |
 | `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--source` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
-| `-p, --package <ID[@VERSION]>` | uninstall | Removes only this package's skills. Removes whichever version is installed, or only the version you name. |
-| `--stale` | uninstall | Removes only stale skills: a skill whose package the target no longer references, or whose package the target references at a different version. Needs a solution or project. Cannot combine with `--package`. |
+| `-p, --package <ID[@VERSION]>` | uninstall | Removes this package's skills from all tracked versions, or only the exact version you name. |
+| `--stale` | uninstall | Removes only skills whose exact package/version is no longer referenced by the target. Needs a solution or project. Cannot combine with `--package`. |
 | `-s, --source <PATH>` | uninstall | With `--stale`, the solution, project, or directory to read package references from for comparison. Defaults to searching the current directory. |
 | `--dry-run` | install, uninstall | Reports what would change, and writes nothing. |
 
@@ -337,9 +354,21 @@ dotnet-package-skills uninstall --destination .claude/skills
 ### Scripts and CI
 
 The tool writes reports for people to read. The manifest is its only machine-readable output. In
-a script, rely on the exit code. The code is `0` when the command succeeded. The code is `1` when
-the command stopped, and the reason appears on stderr. A command that stops changes nothing. An
-argument error also prints help text on stdout.
+a script, rely on the exit code:
+
+| Outcome | Exit code |
+| --- | --- |
+| Install completes without errors, including warning-only or ignored-package results | `0` |
+| Install encounters skill collisions, after installing the other valid skills | `1` |
+| Install dry-run reports collisions without writing | `1` |
+| List completes discovery, including collision diagnostics, without writing | `0` |
+| Interactive operation is cancelled without writing | `0` |
+| Argument or safety validation fails | `1` |
+
+Completed work, ignored packages, warnings, and skipped candidates appear on stdout. Errors
+appear on stderr. Exit code 1 can therefore mean a **partial installation**, not that nothing
+changed. Preflight failures such as an old/corrupt manifest or a missing target package stop
+installation before writes. An argument error also prints help text on stdout.
 
 A job that keeps a committed skills folder in step with the project can run these two commands:
 
@@ -377,20 +406,23 @@ The tool keeps the skill folder's name from the package. The package ID and vers
 install manifest, for attribution and for uninstall filtering, but the tool does not add them to
 the path.
 
-The manifest follows the shape of the .NET local tool manifest, `dotnet-tools.json`. It has a
-format `version`, and then one entry for each package, keyed by the lowercase package ID. Each
-entry names the one version that its skills came from, and the skill folders it owns:
+The manifest has a format `version` and one entry for each package, keyed by the lowercase
+package ID. Each package contains a `versions` map, keyed by normalized exact versions. Each
+version owns its own skill folders:
 
 ```json
 {
   "version": 1,
   "packages": {
     "contoso.widgets": {
-      "version": "2.3.0",
-      "skills": [
-        "contoso.widgets-widget-testing",
-        "contoso.widgets-widget-usage"
-      ]
+      "versions": {
+        "2.3.0": {
+          "skills": ["contoso.widgets-widget-usage"]
+        },
+        "3.0.0": {
+          "skills": ["contoso.widgets-widget-testing"]
+        }
+      }
     }
   }
 }
@@ -402,6 +434,13 @@ this, a Windows checkout and a Linux checkout produce the same bytes. The tool i
 that it does not recognize. It refuses a manifest with a newer format `version`, and it asks you
 to update the tool instead.
 
+This prerelease redesign retains format number `1` but does not migrate the old
+single-version-per-package layout. The tool rejects that layout before writes, including on
+uninstall, rather than losing ownership information. Before upgrading, use the older compatible
+tool to uninstall its managed skills. Alternatively, back up and move aside the old manifest
+**together with only the skill folders it lists**, then install again. Preserve hand-authored
+folders. Deleting only the manifest leaves unmanaged folders that the tool will not overwrite.
+
 We recommend that a package author prefix every skill folder with the package's lowercased ID, as the
 example above shows. This convention keeps names globally unique when skills from many packages
 share one destination. The tool documents this convention. It does not enforce it. An existing
@@ -410,45 +449,40 @@ safe name still works.
 ### Name collisions
 
 The tool compares destination names without regard to letter case. When two package skills
-choose the same name, the tool copies the first one in a fixed package order. It skips a later
-collision and shows a warning. An existing nonempty destination folder that this tool does not
-track belongs to the user. The tool skips that folder too, and never overwrites it. It can reuse
-an ordinary empty folder. Symbolic links, junctions, and other reparse points remain protected as
-collisions even when their targets are empty.
+choose the same name, including two versions of the same package, the tool skips **all** of
+them and reports the destination and every candidate as an error. It installs other valid
+skills and returns exit code 1. There is no first-wins behavior. Existing bytes and ownership
+at a skipped destination remain unchanged, even if one candidate matches the current owner.
 
 The same protection applies to a name that a different package already owns. Every install mode
-warns about this and keeps the current owner. It does not transfer the name automatically.
-Uninstall the old skill explicitly before you install its replacement. Upgrading the same package
-still works as expected. When both the current owner and another package offer the same name,
-installation prefers the owner's candidate. This way, the conflict does not block a legitimate
-refresh.
+skips the incoming candidate with an error and keeps the current owner. It does not transfer or
+relabel the name automatically, including when an upgrade drops that skill. Uninstall the old
+skill explicitly before installing its replacement. A single incoming candidate from the same
+package may still refresh an older installed version; an existing owner alone is not a second
+discovered candidate.
 
-One combination stops `install` instead of skipping a file. This happens when the owner's package
-moves to a version that no longer ships the skill, while a different package ships a skill with
-that same name. Removing the old copy would hand the name to the other package. Keeping the old
-copy would record it under the new version's number, which would be wrong. For both reasons,
-`install` changes nothing in this case. It directs you to uninstall with `--package` for the
-owner. After you remove the owner's installed skills, `install` copies both packages' current
-skills.
+An existing nonempty destination folder that this tool does not track belongs to the user.
+The tool skips it with a warning and never overwrites it. These unmanaged skips alone do not
+produce exit code 1. It can reuse an ordinary empty folder. Symbolic links, junctions, and other
+reparse points remain protected even when their targets are empty. Existing safety failures,
+such as a file obstructing a tracked cross-version replacement, still stop installation before
+writes instead of becoming candidate-collision skips.
 
-V1 does not reconcile two folders that differ only in physical case on a case-sensitive file
-system. Keep an authored skill folder's casing stable across versions. Avoid folders such as
-`guide` and `GUIDE` in the same destination. A case-only rename, or a collision between those
-physical variants, can leave an untracked old copy behind, or it can overwrite a handwritten
-variant. Both outcomes fall outside the v1 guarantees.
+V1 does not reconcile pre-existing folders that differ only in physical case on a case-sensitive
+file system. Keep an authored skill folder's casing stable across versions. Avoid folders such
+as `guide` and `GUIDE` in the same destination. Incoming candidates differing only in case are
+collisions, but physical case-only renames remain outside the v1 guarantees.
 
 A refresh of a tracked skill replaces its entire folder. This includes any local edits and any
 files that you added. Keep hand-written guidance in a separate, untracked skill folder instead.
 
 ### Package versions
 
-The destination holds skills from one version of each package, and the manifest records that one
-version.
-[NuGet Central Package Management](https://learn.microsoft.com/nuget/consume-packages/central-package-management)
-keeps the projects in a repository on one version of each package. We recommend it for this
-reason. When a target resolves a package to more than one version, `install` stops without
-changing anything, and it names the versions that you need to align. `--package` stops the same
-way when you name one package at two versions. `list` still shows every version that it finds.
+The destination can hold disjoint skills from multiple versions of one package. The manifest
+records the exact version for each skill, and the report warns when multiple versions contain
+skills. Skill-free versions are reported as ignored, not as conflicts. Only colliding skill
+destinations cause partial-install errors. `list` uses the same classification but remains
+read-only and returns 0; `install` returns 1 if it reports errors, after completing safe work.
 
 ### Commit or ignore this folder
 

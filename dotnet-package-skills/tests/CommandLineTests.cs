@@ -80,7 +80,7 @@ public class CommandLineTests
         Assert.Empty(error.ToString());
         Assert.Equal(command == "install", File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
         Assert.False(Directory.Exists(Path.Combine(destination, "wrong-version")));
-        Assert.Equal("1.10.0", InstallManifest.Load(destination).Packages["mockly"].Version);
+        Assert.Equal("1.10.0", Assert.Single(InstallManifest.Load(destination).Packages["mockly"].Versions).Key);
         Assert.Equal(before, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
     }
 

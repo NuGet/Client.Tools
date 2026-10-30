@@ -66,7 +66,7 @@ public class SkillInstallerTests
         var manifest = InstallManifest.Load(destination);
         Assert.Equal(
             ["contoso.widgets-widget-testing", "contoso.widgets-widget-usage"],
-            manifest.Packages["contoso.widgets"].Skills);
+            Assert.Single(manifest.Packages["contoso.widgets"].Versions).Value.Skills);
 
         var json = File.ReadAllText(Path.Combine(destination, InstallManifest.FileName));
         Assert.Contains("\"packages\":", json);
@@ -98,7 +98,7 @@ public class SkillInstallerTests
 
         Assert.True(Directory.Exists(Path.Combine(destination, "mockly")));
         Assert.Empty(outcome.Removed);
-        Assert.Equal("1.11.0", Assert.Single(InstallManifest.Load(destination).Packages).Value.Version);
+        Assert.Equal("1.11.0", Assert.Single(Assert.Single(InstallManifest.Load(destination).Packages).Value.Versions).Key);
     }
 
     [Theory]
@@ -126,8 +126,9 @@ public class SkillInstallerTests
         {
             Assert.False(Directory.Exists(Path.Combine(destination, "mockly-migration")));
             var package = Assert.Single(InstallManifest.Load(destination).Packages);
-            Assert.Equal("1.11.0", package.Value.Version);
-            Assert.Equal(["mockly-usage"], package.Value.Skills);
+            var version = Assert.Single(package.Value.Versions);
+            Assert.Equal("1.11.0", version.Key);
+            Assert.Equal(["mockly-usage"], version.Value.Skills);
         }
     }
 
@@ -166,7 +167,7 @@ public class SkillInstallerTests
         Assert.True(File.Exists(Path.Combine(destination, "mockly-migration", "SKILL.md")));
         Assert.Equal(
             ["mockly-migration", "mockly-usage"],
-            InstallManifest.Load(destination).Packages["mockly"].Skills);
+            Assert.Single(InstallManifest.Load(destination).Packages["mockly"].Versions).Value.Skills);
     }
 
     [Fact]
@@ -188,7 +189,7 @@ public class SkillInstallerTests
     }
 
     [Fact]
-    public void Install_keeps_the_first_skill_when_destination_names_collide()
+    public void Install_skips_every_skill_when_destination_names_collide()
     {
         using var temp = new TempDirectory();
         var destination = temp.Combine("dest");
@@ -201,9 +202,10 @@ public class SkillInstallerTests
             ],
             dryRun: false);
 
-        Assert.Equal("Mockly", Assert.Single(outcome.Installed).PackageId);
-        Assert.Equal("Contoso.Widgets", Assert.Single(outcome.Skipped).PackageId);
-        Assert.True(File.Exists(Path.Combine(destination, "shared-skill", "SKILL.md")));
+        Assert.Empty(outcome.Installed);
+        Assert.Equal(2, outcome.Skipped.Count);
+        Assert.Single(outcome.Errors);
+        Assert.False(Directory.Exists(destination));
     }
 
     [Fact]
@@ -220,8 +222,9 @@ public class SkillInstallerTests
             ],
             dryRun: false);
 
-        Assert.Single(outcome.Installed);
-        Assert.Single(outcome.Skipped);
+        Assert.Empty(outcome.Installed);
+        Assert.Equal(2, outcome.Skipped.Count);
+        Assert.Single(outcome.Errors);
     }
 
     [Fact]
@@ -505,12 +508,9 @@ public class SkillInstallerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Moving_a_package_to_a_version_without_a_skill_that_another_package_ships_stops_before_any_change(
+    public void Moving_a_package_to_a_version_without_a_skill_keeps_its_owner_when_another_package_conflicts(
         bool dryRun)
     {
-        // Removing the old copy would hand its name to the other package, which takes an explicit
-        // uninstall. Keeping it would record the old version's copy under the new version, where
-        // no later run would ever remove it.
         using var temp = new TempDirectory();
         var destination = temp.Combine("dest");
         _installer.Install(
@@ -519,20 +519,22 @@ public class SkillInstallerTests
             dryRun: false);
         var before = Snapshot(destination);
 
-        var error = Assert.Throws<PackageSkillsException>(() => _installer.Install(
+        var outcome = _installer.Install(
             destination,
             [Skill(temp, "Alpha", "2.0.0", "alpha-usage"), Skill(temp, "Beta", "2.0.0", "shared")],
             dryRun,
-            offered: Offer(("Alpha", "2.0.0"), ("Beta", "2.0.0"))));
+            offered: Offer(("Alpha", "2.0.0"), ("Beta", "2.0.0")));
 
-        Assert.Contains(
-            "Alpha 2.0.0 no longer ships the installed skill 'shared', and Beta 2.0.0 ships a skill with that name",
-            error.Message);
-        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
-        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-        Assert.DoesNotContain("--stale", error.Message);
-        Assert.Contains("No skills were changed", error.Message);
-        Assert.Equal(before, Snapshot(destination));
+        Assert.Equal("alpha-usage", Assert.Single(outcome.Installed).SkillName);
+        Assert.Equal("shared", Assert.Single(outcome.Skipped).SkillName);
+        Assert.Contains("use uninstall with --package", Assert.Single(outcome.Errors).Reason);
+        Assert.Empty(outcome.Removed);
+        Assert.Contains(new TrackedSkill("alpha", "1.0.0", "shared"), InstallManifest.Load(destination).EnumerateSkills());
+        if (dryRun) { Assert.Equal(before, Snapshot(destination)); }
+        else
+        {
+            Assert.Contains(new TrackedSkill("alpha", "2.0.0", "alpha-usage"), InstallManifest.Load(destination).EnumerateSkills());
+        }
     }
 
     [Theory]
@@ -547,16 +549,18 @@ public class SkillInstallerTests
             dryRun: false);
         var before = Snapshot(destination);
 
-        var error = Assert.Throws<PackageSkillsException>(() =>
-            _installer.Install(destination,
-                [Skill(temp, "Beta", "2.0.0", "alpha-shared"), Skill(temp, "Beta", "2.0.0", "gamma-shared")],
-                dryRun, offered: Offer(("Alpha", "2.0.0"), ("Gamma", "2.0.0"), ("Beta", "2.0.0"))));
+        var outcome = _installer.Install(destination,
+            [Skill(temp, "Beta", "2.0.0", "alpha-shared"), Skill(temp, "Beta", "2.0.0", "gamma-shared")],
+            dryRun, offered: Offer(("Alpha", "2.0.0"), ("Gamma", "2.0.0"), ("Beta", "2.0.0")));
 
-        Assert.Contains("Alpha", error.Message);
-        Assert.Contains("Gamma", error.Message);
-        Assert.Contains("Use uninstall with --package to remove skills for the conflicting packages, then try again.", error.Message);
-        Assert.DoesNotContain("dotnet-package-skills uninstall", error.Message);
-        Assert.DoesNotContain("--stale", error.Message);
+        Assert.Empty(outcome.Installed);
+        Assert.Equal(2, outcome.Errors.Count);
+        Assert.All(outcome.Errors, error =>
+        {
+            Assert.Contains("use uninstall with --package", error.Reason);
+            Assert.DoesNotContain("dotnet-package-skills uninstall", error.Reason);
+            Assert.DoesNotContain("--stale", error.Reason);
+        });
         Assert.Equal(before, Snapshot(destination));
     }
 
@@ -578,8 +582,8 @@ public class SkillInstallerTests
         Assert.Contains("managed for alpha 1.0.0", Assert.Single(result.Skipped).Reason);
         Assert.Equal(new TrackedSkill("alpha", "1.0.0", "shared"), Assert.Single(result.Untouched));
         var alpha = InstallManifest.Load(destination).Packages["alpha"];
-        Assert.Equal("1.0.0", alpha.Version);
-        Assert.Equal(["shared"], alpha.Skills);
+        Assert.Equal("1.0.0", Assert.Single(alpha.Versions).Key);
+        Assert.Equal(["shared"], Assert.Single(alpha.Versions).Value.Skills);
     }
 
     [Fact]
@@ -641,23 +645,24 @@ public class SkillInstallerTests
         Assert.Empty(result.Skipped);
         Assert.Single(result.Installed);
         var manifest = InstallManifest.Load(destination);
-        Assert.Equal("2.0.0", manifest.Packages["alpha"].Version);
-        Assert.Equal("1.0.0", manifest.Packages["beta"].Version);
+        Assert.Equal("2.0.0", Assert.Single(manifest.Packages["alpha"].Versions).Key);
+        Assert.Equal("1.0.0", Assert.Single(manifest.Packages["beta"].Versions).Key);
     }
 
     [Fact]
-    public void An_only_adding_install_cannot_record_a_second_version_of_a_package()
+    public void An_only_adding_install_records_disjoint_versions_without_relabeling_existing_skills()
     {
         using var temp = new TempDirectory();
         var destination = temp.Combine("dest");
         _installer.Install(destination, [Skill(temp, "Mockly", "1.10.0", "mockly-usage")], dryRun: false);
-        var before = Snapshot(destination);
+        var before = File.ReadAllBytes(Path.Combine(destination, "mockly-usage", "SKILL.md"));
 
-        var error = Assert.Throws<PackageSkillsException>(() => _installer.Install(
-            destination, [Skill(temp, "Mockly", "1.11.0", "mockly-testing")], dryRun: false, offered: Offer()));
+        var outcome = _installer.Install(
+            destination, [Skill(temp, "Mockly", "1.11.0", "mockly-testing")], dryRun: false, offered: Offer());
 
-        Assert.Contains("only one version", error.Message);
-        Assert.Equal(before, Snapshot(destination));
+        Assert.Single(outcome.Installed);
+        Assert.Equal(2, InstallManifest.Load(destination).Packages["mockly"].Versions.Count);
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(destination, "mockly-usage", "SKILL.md")));
     }
 
     [Theory]
@@ -1085,8 +1090,8 @@ public class SkillInstallerTests
                 {
                   "version": 1,
                   "packages": {
-                    "contoso.widgets": {"version":"2.3.0","skills":["already-installed"]},
-                    "mockly": {"version":"1.10.0","skills":["{{unsafeName}}"]}
+                    "contoso.widgets": { "versions": { "2.3.0": { "skills": ["already-installed"] } } },
+                    "mockly": { "versions": { "1.10.0": { "skills": ["{{unsafeName}}"] } } }
                   }
                 }
                 """);
@@ -1187,6 +1192,8 @@ public class SkillInstallerTests
             ]
             : [];
 
-    private static Dictionary<string, string> Offer(params (string Id, string Version)[] packages) =>
-        packages.ToDictionary(package => package.Id, package => package.Version, StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<string, IReadOnlyCollection<string>> Offer(params (string Id, string Version)[] packages) =>
+        packages.GroupBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => (IReadOnlyCollection<string>)group.Select(package => package.Version).ToArray(),
+                StringComparer.OrdinalIgnoreCase);
 }
