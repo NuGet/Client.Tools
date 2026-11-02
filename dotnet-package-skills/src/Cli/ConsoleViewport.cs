@@ -17,11 +17,19 @@ internal static class ConsoleViewport
         return (buffer.Window.Right - buffer.Window.Left + 1, buffer.Window.Bottom - buffer.Window.Top + 1);
     }
 
-    public static void SetCursorPosition(int left, int top)
+    public static void SetCursorPosition(int left, int top, TextWriter? output = null)
     {
         if (!OperatingSystem.IsWindows())
         {
-            Console.SetCursorPosition(left, top);
+            if (output is null)
+            {
+                Console.SetCursorPosition(left, top);
+            }
+            else
+            {
+                output.Write($"\x1b[{top + 1};{left + 1}H");
+            }
+
             return;
         }
 
@@ -46,6 +54,25 @@ internal static class ConsoleViewport
         else
         {
             Console.Write("\x1b[2J\x1b[H");
+        }
+    }
+
+    public static void ClearLine(TextWriter output)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            output.Write("\x1b[2K");
+            return;
+        }
+
+        var handle = GetStdHandle(-11);
+        var buffer = ReadBuffer();
+        var position = new Coordinate { X = buffer.Window.Left, Y = buffer.Cursor.Y };
+        var width = (uint)(buffer.Window.Right - buffer.Window.Left + 1);
+        if (!FillConsoleOutputCharacter(handle, ' ', width, position, out _) ||
+            !FillConsoleOutputAttribute(handle, buffer.Attributes, width, position, out _))
+        {
+            throw ConsoleError("Could not clear the temporary terminal line.");
         }
     }
 

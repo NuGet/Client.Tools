@@ -350,6 +350,17 @@ internal sealed class FakeTerminal(int windowHeight = 18, int windowWidth = 100)
         _cursorTop = 0;
     }
 
+    public void ClearLine()
+    {
+        BeforeOperation?.Invoke(nameof(ClearLine));
+        EnsureRow();
+        var row = _screen[_cursorTop];
+        for (var cell = 0; cell < Math.Min(row.Count, WindowWidth); cell++)
+        {
+            row[cell] = " ";
+        }
+    }
+
     public bool TryReadKey(TimeSpan timeout, out ConsoleKeyInfo key)
     {
         InputTimeouts.Add(timeout);

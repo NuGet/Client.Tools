@@ -19,18 +19,25 @@ namespace DotnetPackageSkills.Cli
         private const string DefaultDestination = InstallRequest.DefaultDestination;
 
         public static int Invoke(string[] args, TextWriter? output = null, TextWriter? error = null) =>
-            Invoke(args, new ProcessRunner(), output, error);
+            Invoke(args, new ProcessRunner(), output, error,
+                (output is null || ReferenceEquals(output, Console.Out)) &&
+                (error is null || ReferenceEquals(error, Console.Error))
+                    ? () => PackageListingIndicator.Start(error ?? Console.Error)
+                    : null);
 
         internal static int Invoke(
             string[] args,
             IProcessRunner runner,
             TextWriter? output = null,
-            TextWriter? error = null) =>
-            CommandLineDiagnostics.Invoke(Build(runner).Parse(args), output ?? Console.Out, error ?? Console.Error);
+            TextWriter? error = null,
+            Func<IDisposable?>? beginPackageListing = null) =>
+            CommandLineDiagnostics.Invoke(
+                Build(runner, beginPackageListing).Parse(args), output ?? Console.Out, error ?? Console.Error);
 
-        public static RootCommand Build() => Build(new ProcessRunner());
+        public static RootCommand Build() =>
+            Build(new ProcessRunner(), () => PackageListingIndicator.Start(Console.Error));
 
-        internal static RootCommand Build(IProcessRunner runner)
+        internal static RootCommand Build(IProcessRunner runner, Func<IDisposable?>? beginPackageListing = null)
         {
             var source = new Option<string?>("--source", "-s")
             {
@@ -136,7 +143,7 @@ namespace DotnetPackageSkills.Cli
             install.SetAction(parseResult => Run(() =>
             {
                 var request = BuildRequest(parseResult);
-                var service = new SkillInstallService(runner);
+                var service = new SkillInstallService(runner, beginPackageListing);
 
                 var result = parseResult.GetValue(interactive)
                     ? InstallInteractively(service, request)
@@ -159,7 +166,7 @@ namespace DotnetPackageSkills.Cli
             list.SetAction(parseResult => Run(() =>
             {
                 var request = BuildRequest(parseResult) with { DryRun = true };
-                var result = new SkillInstallService(runner).Discover(request);
+                var result = new SkillInstallService(runner, beginPackageListing).Discover(request);
                 new OutputWriter(Console.Out).WriteInstallReport(result, copied: false);
             }));
 
@@ -213,7 +220,7 @@ namespace DotnetPackageSkills.Cli
                 var isDryRun = parseResult.GetValue(dryRun);
                 var (id, version) = ParseUninstallFilter(parseResult.GetValue(uninstallPackage));
                 var root = Path.GetFullPath(destinationValue, workingDirectory);
-                var service = new SkillInstallService(runner);
+                var service = new SkillInstallService(runner, beginPackageListing);
                 var references = parseResult.GetValue(stale)
                     ? service.ReadReferences(parseResult.GetValue(staleSource), workingDirectory)
                     : null;

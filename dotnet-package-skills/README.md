@@ -89,6 +89,11 @@ An explicit `ID@VERSION` does not read the manifest or target to resolve its ver
 selector is explicit or manifest-resolved, the tool does not run `dotnet list package`.
 The tool never chooses a version by scanning the NuGet global-packages directory.
 
+While waiting for `dotnet list package`, an interactive terminal shows a temporary
+`Reading package references...` spinner. It clears before the results or skill picker appear.
+The indicator uses stderr and is disabled in CI, unsupported terminals, or when stdin,
+stdout, or stderr is redirected; redirected output stays unchanged.
+
 NuGet's version parser checks exact versions, including the older one-, two-, and four-part
 forms. Invalid prerelease or metadata labels are rejected. Package comparisons normalize
 padding and letter case and ignore build metadata, so `1.10` and `1.10.0+build.1` identify the
