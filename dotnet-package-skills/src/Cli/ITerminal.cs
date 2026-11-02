@@ -57,7 +57,14 @@ internal interface ITerminal
 
     void WriteLine(string text = "");
 
-    void ClearLine();
+    /// <summary>Reserves a status line without reading terminal input or overwriting partial output.</summary>
+    void BeginStatusLine();
+
+    /// <summary>Writes at the reserved origin without following the current cursor or viewport.</summary>
+    void WriteStatusLine(string text);
+
+    /// <summary>Clears the previously occupied cells, including cells hidden by a narrower viewport.</summary>
+    void ClearStatusLine(int cells);
 
     /// <summary>Starts a fresh viewport for the initial frame or a resize, without discarding scrollback.</summary>
     void ClearViewport();
@@ -75,6 +82,7 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
     private const int FallbackWidth = 80;
     private TerminalStyle _style;
     private TerminalStyle? _appliedStyle;
+    private int _statusTop;
 
     public bool IsRedirected => Console.IsInputRedirected || Console.IsOutputRedirected;
 
@@ -196,7 +204,45 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
 
     public void WriteLine(string text = "") => (output ?? Console.Out).WriteLine(text);
 
-    public void ClearLine() => ConsoleViewport.ClearLine(output ?? Console.Out);
+    public void BeginStatusLine()
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            _statusTop = ConsoleViewport.BeginStatusLine(writer);
+        }
+        else
+        {
+            ConsoleViewport.BeginRelativeStatusLine(writer);
+        }
+    }
+
+    public void WriteStatusLine(string text)
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            ConsoleViewport.WriteStatusLine(_statusTop, text);
+        }
+        else
+        {
+            ConsoleViewport.WriteRelativeStatusLine(writer, text);
+        }
+    }
+
+    public void ClearStatusLine(int cells)
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            ConsoleViewport.ClearStatusLine(_statusTop, cells);
+        }
+        else
+        {
+            var (width, height) = GetWindowSize();
+            ConsoleViewport.ClearRelativeStatusLine(writer, cells, width, height);
+        }
+    }
 
     public void ClearViewport()
     {

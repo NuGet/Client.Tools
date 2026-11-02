@@ -1,46 +1,69 @@
-using System.Runtime.ExceptionServices;
+using System.Diagnostics;
 
 namespace DotnetPackageSkills.Cli;
 
 internal sealed class PackageListingIndicator : IDisposable
 {
     private const string Frames = "|/-\\";
-    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
     private readonly ITerminal _terminal;
-    private readonly ITimer _timer;
+    private readonly TextWriter _error;
+    private readonly ITimer? _timer;
     private readonly object _gate = new();
     private readonly ConsoleCancelEventHandler? _cancelHandler;
-    private ExceptionDispatchInfo? _renderFailure;
+    private Exception? _renderFailure;
     private bool _stopped;
+    private bool _failureReported;
     private int _frame;
     private int _renderedCells;
+    private int _renderedWidth;
 
-    internal PackageListingIndicator(ITerminal terminal, TimeProvider timeProvider, bool handleControlC = false)
+    internal PackageListingIndicator(
+        ITerminal terminal, TimeProvider timeProvider, bool handleControlC = false, TextWriter? error = null)
     {
         _terminal = terminal;
-        DrawFrame();
-        _timer = timeProvider.CreateTimer(Tick, null, Interval, Interval);
-        if (handleControlC)
+        _error = error ?? Console.Error;
+        try
         {
-            _cancelHandler = (_, _) => Stop();
-            Console.CancelKeyPress += _cancelHandler;
+            _terminal.BeginStatusLine();
+            DrawFrame();
+            _timer = timeProvider.CreateTimer(Tick, null, Interval, Interval);
+            if (handleControlC)
+            {
+                _cancelHandler = (_, _) => Stop();
+                Console.CancelKeyPress += _cancelHandler;
+            }
+        }
+        catch (Exception failure) when (IsTerminalFailure(failure))
+        {
+            _renderFailure = failure;
+            Stop();
         }
     }
 
     internal static IDisposable? Start(TextWriter error)
     {
-        if (!CanAnimate(
-                Console.IsInputRedirected,
-                Console.IsOutputRedirected,
-                Console.IsErrorRedirected,
-                IsEnabled("CI") || IsEnabled("TF_BUILD") || IsEnabled("GITHUB_ACTIONS"),
-                Environment.GetEnvironmentVariable("TERM"),
-                OperatingSystem.IsWindows()))
+        try
         {
+            if (!CanAnimate(
+                    Console.IsInputRedirected,
+                    Console.IsOutputRedirected,
+                    Console.IsErrorRedirected,
+                    IsEnabled("CI") || IsEnabled("TF_BUILD") || IsEnabled("GITHUB_ACTIONS"),
+                    Environment.GetEnvironmentVariable("TERM"),
+                    OperatingSystem.IsWindows()))
+            {
+                return null;
+            }
+
+            return new PackageListingIndicator(
+                new SystemTerminal(error), TimeProvider.System, handleControlC: true, error: error);
+        }
+        catch (Exception failure) when (IsTerminalFailure(failure))
+        {
+            WriteWarning(error, failure);
             return null;
         }
-
-        return new PackageListingIndicator(new SystemTerminal(error), TimeProvider.System, handleControlC: true);
     }
 
     internal static bool CanAnimate(
@@ -68,10 +91,9 @@ internal sealed class PackageListingIndicator : IDisposable
             {
                 DrawFrame();
             }
-            catch (Exception error)
+            catch (Exception failure) when (IsTerminalFailure(failure))
             {
-                // Propagate background rendering failures on the command thread, not the timer thread.
-                _renderFailure = ExceptionDispatchInfo.Capture(error);
+                _renderFailure = failure;
             }
         }
     }
@@ -79,38 +101,39 @@ internal sealed class PackageListingIndicator : IDisposable
     private void DrawFrame()
     {
         var (width, height) = _terminal.GetWindowSize();
-        var top = _terminal.CursorTop;
-        ClearFrame(width, height, top);
+        if (width != _renderedWidth)
+        {
+            ClearFrame();
+        }
+
         if (width <= 1 || height <= 0)
         {
             return;
         }
 
-        var text = TerminalText.Clip($"{Frames[_frame]} Reading package references...", width - 1);
-        _terminal.SetCursorPosition(0, top);
-        _terminal.Write(text);
-        _renderedCells = text.Length;
-        // Keep the cursor at the start so a resize preserves the beginning of the temporary line.
-        _terminal.SetCursorPosition(0, top);
+        if (_renderedCells == 0)
+        {
+            var text = Frames[_frame] + TerminalText.Clip(" Reading package references...", width - 2);
+            _renderedCells = text.Length;
+            _terminal.WriteStatusLine(text);
+            _renderedWidth = width;
+        }
+        else
+        {
+            _terminal.WriteStatusLine(Frames[_frame].ToString());
+        }
+
         _frame = (_frame + 1) % Frames.Length;
     }
 
-    private void ClearFrame(int width, int height, int top)
+    private void ClearFrame()
     {
         if (_renderedCells == 0)
         {
             return;
         }
 
-        // A narrower viewport can reflow the previous frame over more than one row.
-        var rows = Math.Min(1 + (_renderedCells - 1) / Math.Max(1, width), height - top);
-        for (var row = 0; row < rows; row++)
-        {
-            _terminal.SetCursorPosition(0, top + row);
-            _terminal.ClearLine();
-        }
-
-        _terminal.SetCursorPosition(0, top);
+        _terminal.ClearStatusLine(_renderedCells);
         _renderedCells = 0;
     }
 
@@ -124,7 +147,7 @@ internal sealed class PackageListingIndicator : IDisposable
             }
 
             _stopped = true;
-            _timer.Dispose();
+            _timer?.Dispose();
             if (_cancelHandler is not null)
             {
                 Console.CancelKeyPress -= _cancelHandler;
@@ -132,12 +155,11 @@ internal sealed class PackageListingIndicator : IDisposable
 
             try
             {
-                var (width, height) = _terminal.GetWindowSize();
-                ClearFrame(width, height, _terminal.CursorTop);
+                ClearFrame();
             }
-            catch (Exception error)
+            catch (Exception failure) when (IsTerminalFailure(failure))
             {
-                _renderFailure ??= ExceptionDispatchInfo.Capture(error);
+                _renderFailure ??= failure;
             }
         }
     }
@@ -145,7 +167,30 @@ internal sealed class PackageListingIndicator : IDisposable
     public void Dispose()
     {
         Stop();
-        _timer.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _renderFailure?.Throw();
+        _timer?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        lock (_gate)
+        {
+            if (_renderFailure is not null && !_failureReported)
+            {
+                _failureReported = true;
+                WriteWarning(_error, _renderFailure);
+            }
+        }
+    }
+
+    private static bool IsTerminalFailure(Exception failure) =>
+        failure is IOException or PlatformNotSupportedException or InvalidOperationException or ArgumentOutOfRangeException;
+
+    private static void WriteWarning(TextWriter error, Exception failure)
+    {
+        var message = $"Warning: could not display package-reference progress: {TerminalText.Sanitize(failure.Message)}";
+        try
+        {
+            error.WriteLine(message);
+        }
+        catch (Exception diagnosticFailure) when (IsTerminalFailure(diagnosticFailure))
+        {
+            Trace.TraceWarning("{0} (stderr unavailable: {1})", message, diagnosticFailure.Message);
+        }
     }
 }

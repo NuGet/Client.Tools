@@ -57,23 +57,78 @@ internal static class ConsoleViewport
         }
     }
 
-    public static void ClearLine(TextWriter output)
+    [SupportedOSPlatform("windows")]
+    public static int BeginStatusLine(TextWriter output)
     {
-        if (!OperatingSystem.IsWindows())
+        var buffer = ReadBuffer(GetStdHandle(-12));
+        if (buffer.Cursor.X != 0)
         {
-            output.Write("\x1b[2K");
-            return;
+            output.WriteLine();
+            buffer = ReadBuffer(GetStdHandle(-12));
         }
 
-        var handle = GetStdHandle(-11);
-        var buffer = ReadBuffer();
-        var position = new Coordinate { X = buffer.Window.Left, Y = buffer.Cursor.Y };
-        var width = (uint)(buffer.Window.Right - buffer.Window.Left + 1);
-        if (!FillConsoleOutputCharacter(handle, ' ', width, position, out _) ||
-            !FillConsoleOutputAttribute(handle, buffer.Attributes, width, position, out _))
+        return buffer.Cursor.Y;
+    }
+
+    [SupportedOSPlatform("windows")]
+    public static void WriteStatusLine(int top, string text)
+    {
+        if (!WriteConsoleOutputCharacter(GetStdHandle(-12), text, (uint)text.Length,
+                new Coordinate { Y = (short)top }, out var written))
+        {
+            throw ConsoleError("Could not write the temporary terminal line.");
+        }
+
+        if (written != text.Length)
+        {
+            throw new IOException("Could not write the complete temporary terminal line.");
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    public static void ClearStatusLine(int top, int cells)
+    {
+        var handle = GetStdHandle(-12);
+        var buffer = ReadBuffer(handle);
+        if (top < 0 || top >= buffer.Size.Y)
+        {
+            throw new IOException("The temporary terminal line is no longer in the console buffer.");
+        }
+
+        // Buffer cells can remain hidden beyond the viewport after a classic-console resize.
+        var count = (uint)Math.Min(cells, buffer.Size.X * (buffer.Size.Y - top));
+        if (!FillConsoleOutputCharacter(handle, ' ', count, new Coordinate { Y = (short)top }, out var written))
         {
             throw ConsoleError("Could not clear the temporary terminal line.");
         }
+
+        if (written != count)
+        {
+            throw new IOException("Could not clear the complete temporary terminal line.");
+        }
+    }
+
+    public static void BeginRelativeStatusLine(TextWriter output) => output.Write("\r\n\u001b7");
+
+    public static void WriteRelativeStatusLine(TextWriter output, string text) =>
+        output.Write($"\u001b8{text}\u001b8");
+
+    public static void ClearRelativeStatusLine(TextWriter output, int cells, int width, int height)
+    {
+        output.Write("\u001b8");
+        for (var row = 0; cells > 0 && row < height; row++)
+        {
+            if (row > 0)
+            {
+                output.Write("\x1b[1B\r");
+            }
+
+            var count = Math.Min(cells, Math.Max(1, width));
+            output.Write($"\x1b[{count}X");
+            cells -= count;
+        }
+
+        output.Write("\u001b8");
     }
 
     [SupportedOSPlatform("windows")]
@@ -97,9 +152,9 @@ internal static class ConsoleViewport
     }
 
     [SupportedOSPlatform("windows")]
-    private static ScreenBufferInfo ReadBuffer()
+    private static ScreenBufferInfo ReadBuffer(nint? output = null)
     {
-        if (!GetConsoleScreenBufferInfo(GetStdHandle(-11), out var buffer))
+        if (!GetConsoleScreenBufferInfo(output ?? GetStdHandle(-11), out var buffer))
         {
             throw ConsoleError("Could not read the interactive terminal viewport.");
         }
@@ -151,6 +206,11 @@ internal static class ConsoleViewport
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool FillConsoleOutputCharacter(
         nint output, char character, uint length, Coordinate position, out uint written);
+
+    [DllImport("kernel32.dll", EntryPoint = "WriteConsoleOutputCharacterW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WriteConsoleOutputCharacter(
+        nint output, string text, uint length, Coordinate position, out uint written);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

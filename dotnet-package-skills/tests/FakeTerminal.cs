@@ -24,6 +24,7 @@ internal sealed class FakeTerminal(int windowHeight = 18, int windowWidth = 100)
     private int _cursorTop;
     private int _cursorLeft;
     private int _frameWriteStart;
+    private int _statusTop;
 
     public bool IsRedirected { get; init; }
 
@@ -33,7 +34,18 @@ internal sealed class FakeTerminal(int windowHeight = 18, int windowWidth = 100)
 
     public int WindowWidth { get; private set; } = windowWidth;
 
-    public int CursorTop => _cursorTop;
+    public int BufferWidth { get; private set; } = windowWidth;
+
+    public int? CursorTopOverride { get; set; }
+
+    public int CursorTop
+    {
+        get
+        {
+            BeforeOperation?.Invoke(nameof(CursorTop));
+            return CursorTopOverride ?? _cursorTop;
+        }
+    }
 
     public bool IsCursorVisible { get; private set; } = true;
 
@@ -239,6 +251,15 @@ internal sealed class FakeTerminal(int windowHeight = 18, int windowWidth = 100)
 
     public void ResizeNow(int windowHeight, int windowWidth) => ApplyResize(windowHeight, windowWidth);
 
+    public void ResizeBufferNow(int width)
+    {
+        BufferWidth = width;
+        foreach (var row in _screen.Where(row => row.Count > width))
+        {
+            row.RemoveRange(width, row.Count - width);
+        }
+    }
+
     public FakeTerminal WaitWithoutKey(int times = 1)
     {
         for (var wait = 0; wait < times; wait++)
@@ -350,14 +371,46 @@ internal sealed class FakeTerminal(int windowHeight = 18, int windowWidth = 100)
         _cursorTop = 0;
     }
 
-    public void ClearLine()
+    public void BeginStatusLine()
     {
-        BeforeOperation?.Invoke(nameof(ClearLine));
-        EnsureRow();
-        var row = _screen[_cursorTop];
-        for (var cell = 0; cell < Math.Min(row.Count, WindowWidth); cell++)
+        BeforeOperation?.Invoke(nameof(BeginStatusLine));
+        if (_cursorLeft != 0)
         {
-            row[cell] = " ";
+            WriteLine();
+        }
+
+        _statusTop = _cursorTop;
+    }
+
+    public void WriteStatusLine(string text)
+    {
+        BeforeOperation?.Invoke(nameof(WriteStatusLine));
+        var top = _cursorTop;
+        var left = _cursorLeft;
+        try
+        {
+            _cursorTop = _statusTop;
+            _cursorLeft = 0;
+            Write(text);
+        }
+        finally
+        {
+            _cursorTop = top;
+            _cursorLeft = left;
+        }
+    }
+
+    public void ClearStatusLine(int cells)
+    {
+        BeforeOperation?.Invoke(nameof(ClearStatusLine));
+        for (var cell = 0; cell < cells; cell++)
+        {
+            var top = _statusTop + cell / BufferWidth;
+            var left = cell % BufferWidth;
+            if (top < _screen.Count && left < _screen[top].Count)
+            {
+                _screen[top][left] = " ";
+            }
         }
     }
 

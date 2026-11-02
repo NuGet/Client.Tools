@@ -101,6 +101,70 @@ public class PackageListingProgressTests
         Assert.True(stopped);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Display_failures_do_not_prevent_a_successful_sdk_lookup(bool failDuringStartup)
+    {
+        var terminal = FailingDisplay(failDuringStartup);
+        using var error = new StringWriter();
+        var runner = new CallbackRunner((_, _) => new ProcessResult(0, Report, ""));
+        var lister = new PackageLister(new DotnetCli(runner),
+            () => new PackageListingIndicator(terminal, TimeProvider.System, error: error));
+
+        Assert.Equal("Mockly", Assert.Single(lister.List("App.csproj")).Id);
+        Assert.Contains("Warning: could not display package-reference progress:", error.ToString());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Display_failures_do_not_replace_sdk_error_diagnostics(bool failDuringStartup)
+    {
+        var terminal = FailingDisplay(failDuringStartup);
+        using var error = new StringWriter();
+        var runner = new CallbackRunner((_, _) => new ProcessResult(1, "", "Original SDK diagnostics."));
+        var lister = new PackageLister(new DotnetCli(runner),
+            () => new PackageListingIndicator(terminal, TimeProvider.System, error: error));
+
+        var failure = Assert.Throws<PackageSkillsException>(() => lister.List("App.csproj"));
+
+        Assert.Contains("Original SDK diagnostics.", failure.Message);
+        Assert.Contains("Warning: could not display package-reference progress:", error.ToString());
+    }
+
+    [Theory]
+    [InlineData(true, "Could not start the SDK.")]
+    [InlineData(false, "Could not start the SDK.")]
+    [InlineData(true, "The SDK did not finish within the timeout.")]
+    [InlineData(false, "The SDK did not finish within the timeout.")]
+    public void Display_failures_do_not_replace_sdk_launch_or_timeout_exceptions(
+        bool failDuringStartup, string message)
+    {
+        var terminal = FailingDisplay(failDuringStartup);
+        using var error = new StringWriter();
+        var failure = new ProcessExecutionException(message);
+        var runner = new CallbackRunner((_, _) => throw failure);
+        var lister = new PackageLister(new DotnetCli(runner),
+            () => new PackageListingIndicator(terminal, TimeProvider.System, error: error));
+
+        Assert.Same(failure, Assert.Throws<ProcessExecutionException>(() => lister.List("App.csproj")));
+        Assert.Contains("Warning: could not display package-reference progress:", error.ToString());
+    }
+
+    [Fact]
+    public void An_unavailable_warning_writer_does_not_replace_the_sdk_exception()
+    {
+        var terminal = FailingDisplay(failDuringStartup: false);
+        using var error = new UnavailableErrorWriter();
+        var failure = new ProcessExecutionException("Original SDK launch failure.");
+        var runner = new CallbackRunner((_, _) => throw failure);
+        var lister = new PackageLister(new DotnetCli(runner),
+            () => new PackageListingIndicator(terminal, TimeProvider.System, error: error));
+
+        Assert.Same(failure, Assert.Throws<ProcessExecutionException>(() => lister.List("App.csproj")));
+    }
+
     [Fact]
     public void Suppressed_activity_can_return_no_scope()
     {
@@ -211,6 +275,26 @@ public class PackageListingProgressTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error.ToString());
+    }
+
+    private static FakeTerminal FailingDisplay(bool failDuringStartup) => new()
+    {
+        BeforeOperation = operation =>
+        {
+            if (failDuringStartup
+                ? operation is nameof(ITerminal.Write) or nameof(ITerminal.WriteStatusLine)
+                : operation == nameof(ITerminal.ClearStatusLine))
+            {
+                throw new IOException("Terminal display failed.");
+            }
+        },
+    };
+
+    private sealed class UnavailableErrorWriter : TextWriter
+    {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+        public override void WriteLine(string? value) => throw new IOException("stderr unavailable.");
     }
 
     private sealed class Scope(Action dispose) : IDisposable
