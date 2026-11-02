@@ -14,6 +14,13 @@ public sealed record PackageReferenceInfo(string Id, string Version);
 /// </summary>
 public sealed class PackageLister(DotnetCli dotnet)
 {
+    private readonly Func<IDisposable?>? _beginListing;
+
+    internal PackageLister(DotnetCli dotnet, Func<IDisposable?>? beginListing) : this(dotnet)
+    {
+        _beginListing = beginListing;
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -32,7 +39,11 @@ public sealed class PackageLister(DotnetCli dotnet)
     {
         // The target goes *before* the `package` verb: `dotnet list <TARGET> package`.
         var arguments = new List<string> { "list", target, "package", "--no-restore", "--format", "json" };
-        var result = dotnet.Run(arguments, workingDirectory: Path.GetDirectoryName(target));
+        ProcessResult result;
+        using (_beginListing?.Invoke())
+        {
+            result = dotnet.Run(arguments, workingDirectory: Path.GetDirectoryName(target));
+        }
 
         if (result.ExitCode != 0)
         {

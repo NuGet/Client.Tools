@@ -165,9 +165,10 @@ public sealed class OutputWriter(TextWriter output, TextWriter? errorOutput = nu
                      .OrderBy(package => package.PackageId, StringComparer.OrdinalIgnoreCase)
                      .ThenBy(package => package.PackageVersion, StringComparer.Ordinal))
         {
+            var reason = TerminalText.Sanitize(package.Reason);
+            var detail = reason == IgnoredPackage.NoValidBundledSkillsReason ? string.Empty : $": {reason}";
             output.WriteLine(
-                $"  {TerminalText.Sanitize(package.PackageId)} {TerminalText.Sanitize(package.PackageVersion)}: " +
-                TerminalText.Sanitize(package.Reason));
+                $"  {TerminalText.Sanitize(package.PackageId)} {TerminalText.Sanitize(package.PackageVersion)}{detail}");
         }
     }
 

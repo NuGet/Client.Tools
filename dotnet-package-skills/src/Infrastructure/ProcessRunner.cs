@@ -13,7 +13,7 @@ public sealed record ProcessResult(int ExitCode, string StandardOutput, string S
         string.IsNullOrWhiteSpace(StandardError) ? StandardOutput.Trim() : StandardError.Trim();
 }
 
-/// <summary>Runs external processes. Abstracted so command logic is testable without spawning dotnet.</summary>
+/// <summary>Runs noninteractive external processes. Abstracted so command logic is testable without spawning dotnet.</summary>
 public interface IProcessRunner
 {
     ProcessResult Run(string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null);
@@ -27,11 +27,13 @@ public sealed class ProcessRunner(TimeSpan? timeout = null) : IProcessRunner
 {
     private readonly TimeSpan _timeout = timeout ?? TimeSpan.FromMinutes(5);
 
-    public ProcessResult Run(string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null)
+    internal static ProcessStartInfo CreateStartInfo(
+        string fileName, IReadOnlyList<string> arguments, string? workingDirectory)
     {
         var startInfo = new ProcessStartInfo
         {
             FileName = fileName,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -48,7 +50,12 @@ public sealed class ProcessRunner(TimeSpan? timeout = null) : IProcessRunner
             startInfo.WorkingDirectory = workingDirectory;
         }
 
-        using var process = new Process { StartInfo = startInfo };
+        return startInfo;
+    }
+
+    public ProcessResult Run(string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null)
+    {
+        using var process = new Process { StartInfo = CreateStartInfo(fileName, arguments, workingDirectory) };
 
         try
         {
@@ -60,6 +67,8 @@ public sealed class ProcessRunner(TimeSpan? timeout = null) : IProcessRunner
                 $"Could not start '{fileName}'. Make sure the .NET SDK is installed and on PATH " +
                 "(https://dotnet.microsoft.com/download).", ex);
         }
+
+        process.StandardInput.Close();
 
         // Read both streams concurrently before waiting. Draining one to completion
         // first deadlocks as soon as the other fills its pipe buffer, which dotnet

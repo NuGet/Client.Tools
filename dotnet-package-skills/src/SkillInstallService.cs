@@ -78,11 +78,18 @@ public sealed record SkillChoice(IReadOnlyList<BundledSkill> Selected)
 /// <summary>Ties package listing, skill discovery, and installation together.</summary>
 public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller installer)
 {
+    private readonly Func<IDisposable?>? _beginPackageListing;
+
     internal const string StaleSkillAdvice =
         "Use uninstall with --stale to remove skills that no longer match the project.";
 
     public SkillInstallService(IProcessRunner runner) : this(new DotnetCli(runner), new SkillInstaller())
     {
+    }
+
+    internal SkillInstallService(IProcessRunner runner, Func<IDisposable?>? beginPackageListing) : this(runner)
+    {
+        _beginPackageListing = beginPackageListing;
     }
 
     /// <summary>Discovers bundled skills without writing anything.</summary>
@@ -103,7 +110,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         var globalPackages = LocateGlobalPackages(request, Path.GetDirectoryName(target));
 
         // Every version can contribute distinct skills; keep the complete reference graph.
-        var packages = new PackageLister(dotnet).List(target);
+        var packages = new PackageLister(dotnet, _beginPackageListing).List(target);
 
         return Build(request, target, globalPackages, packages);
     }
@@ -179,7 +186,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                 error);
         }
 
-        var targetPackages = new PackageLister(dotnet).List(target);
+        var targetPackages = new PackageLister(dotnet, _beginPackageListing).List(target);
 
         foreach (var package in unresolved)
         {
@@ -239,7 +246,8 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             candidates.AddRange(skills);
             if (skills.Count == 0)
             {
-                ignored.Add(new IgnoredPackage(id, PackagePathResolver.NormalizeVersion(version), "no valid bundled skills"));
+                ignored.Add(new IgnoredPackage(
+                    id, PackagePathResolver.NormalizeVersion(version), IgnoredPackage.NoValidBundledSkillsReason));
             }
         }
 
@@ -471,7 +479,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
     public TargetReferences ReadReferences(string? target, string workingDirectory)
     {
         var resolved = TargetLocator.Resolve(target, workingDirectory);
-        return new TargetReferences(resolved, new PackageLister(dotnet).List(resolved));
+        return new TargetReferences(resolved, new PackageLister(dotnet, _beginPackageListing).List(resolved));
     }
 
 }

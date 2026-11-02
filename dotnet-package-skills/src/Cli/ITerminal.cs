@@ -19,7 +19,7 @@ internal readonly record struct TerminalState(
     TerminalStyle Style,
     Encoding OutputEncoding);
 
-/// <summary>The console operations the interactive picker needs, in viewport coordinates.</summary>
+/// <summary>The console operations terminal feedback needs, in viewport coordinates.</summary>
 internal interface ITerminal
 {
     bool IsRedirected { get; }
@@ -57,6 +57,15 @@ internal interface ITerminal
 
     void WriteLine(string text = "");
 
+    /// <summary>Reserves a status line without reading terminal input or overwriting partial output.</summary>
+    void BeginStatusLine();
+
+    /// <summary>Writes at the reserved origin without following the current cursor or viewport.</summary>
+    void WriteStatusLine(string text);
+
+    /// <summary>Clears the previously occupied cells, including cells hidden by a narrower viewport.</summary>
+    void ClearStatusLine(int cells);
+
     /// <summary>Starts a fresh viewport for the initial frame or a resize, without discarding scrollback.</summary>
     void ClearViewport();
 
@@ -67,12 +76,13 @@ internal interface ITerminal
 }
 
 /// <summary>An <see cref="ITerminal"/> over the real console.</summary>
-internal sealed class SystemTerminal : ITerminal
+internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
 {
     private const int FallbackHeight = 24;
     private const int FallbackWidth = 80;
     private TerminalStyle _style;
     private TerminalStyle? _appliedStyle;
+    private ConsoleViewport.StatusLine? _statusLine;
 
     public bool IsRedirected => Console.IsInputRedirected || Console.IsOutputRedirected;
 
@@ -188,11 +198,55 @@ internal sealed class SystemTerminal : ITerminal
 
     public void ResetStyle() => SetStyle(TerminalStyle.Default);
 
-    public void SetCursorPosition(int left, int top) => ConsoleViewport.SetCursorPosition(left, top);
+    public void SetCursorPosition(int left, int top) => ConsoleViewport.SetCursorPosition(left, top, output);
 
-    public void Write(string text) => Console.Write(text);
+    public void Write(string text) => (output ?? Console.Out).Write(text);
 
-    public void WriteLine(string text = "") => Console.WriteLine(text);
+    public void WriteLine(string text = "") => (output ?? Console.Out).WriteLine(text);
+
+    public void BeginStatusLine()
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            _statusLine = ConsoleViewport.BeginStatusLine(writer);
+        }
+        else
+        {
+            // Enter .NET's non-echoing key mode without consuming queued input.
+            _ = Console.KeyAvailable;
+            ConsoleViewport.BeginRelativeStatusLine(writer);
+        }
+    }
+
+    public void WriteStatusLine(string text)
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            ConsoleViewport.WriteStatusLine(
+                _statusLine ?? throw new InvalidOperationException("The temporary terminal line has not been reserved."), text);
+        }
+        else
+        {
+            ConsoleViewport.WriteRelativeStatusLine(writer, text);
+        }
+    }
+
+    public void ClearStatusLine(int cells)
+    {
+        var writer = output ?? Console.Out;
+        if (OperatingSystem.IsWindows())
+        {
+            ConsoleViewport.ClearStatusLine(
+                _statusLine ?? throw new InvalidOperationException("The temporary terminal line has not been reserved."), cells);
+        }
+        else
+        {
+            var (width, height) = GetWindowSize();
+            ConsoleViewport.ClearRelativeStatusLine(writer, cells, width, height);
+        }
+    }
 
     public void ClearViewport()
     {
@@ -226,9 +280,12 @@ internal sealed class SystemTerminal : ITerminal
         }
     }
 
-    internal static bool CanUseColor(bool redirected, string? noColor, string? term, bool windows)
+    internal static bool CanUseColor(bool redirected, string? noColor, string? term, bool windows) =>
+        noColor is null && SupportsDynamicOutput(redirected, term, windows);
+
+    internal static bool SupportsDynamicOutput(bool redirected, string? term, bool windows)
     {
-        if (redirected || noColor is not null)
+        if (redirected)
         {
             return false;
         }
