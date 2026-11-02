@@ -90,7 +90,7 @@ selector is explicit or manifest-resolved, the tool does not run `dotnet list pa
 The tool never chooses a version by scanning the NuGet global-packages directory.
 
 While waiting for `dotnet list package`, an interactive terminal shows a temporary
-`Reading package references...` label with a spinner that advances once per second.
+`Reading package references...` label with a spinner that advances every 500 ms.
 The label stays static between terminal width changes. The line clears when the SDK call
 finishes, before the results or skill picker appear.
 The indicator uses stderr and is disabled in CI, unsupported terminals, or when stdin,

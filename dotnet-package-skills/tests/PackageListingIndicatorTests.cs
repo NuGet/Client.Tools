@@ -25,15 +25,15 @@ public class PackageListingIndicatorTests
     }
 
     [Fact]
-    public void Frames_start_immediately_and_advance_every_second()
+    public void Frames_start_immediately_and_advance_every_500_milliseconds()
     {
         var terminal = new FakeTerminal();
         var clock = new ManualClock();
         using var indicator = new PackageListingIndicator(terminal, clock);
 
         Assert.Equal("| Reading package references...", terminal.Screen);
-        Assert.Equal(TimeSpan.FromSeconds(1), clock.Timer.DueTime);
-        Assert.Equal(TimeSpan.FromSeconds(1), clock.Timer.Period);
+        Assert.Equal(TimeSpan.FromMilliseconds(500), clock.Timer.DueTime);
+        Assert.Equal(TimeSpan.FromMilliseconds(500), clock.Timer.Period);
         foreach (var frame in "/-\\|")
         {
             clock.Timer.Tick();
