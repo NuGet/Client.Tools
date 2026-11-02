@@ -82,7 +82,7 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
     private const int FallbackWidth = 80;
     private TerminalStyle _style;
     private TerminalStyle? _appliedStyle;
-    private int _statusTop;
+    private ConsoleViewport.StatusLine? _statusLine;
 
     public bool IsRedirected => Console.IsInputRedirected || Console.IsOutputRedirected;
 
@@ -209,10 +209,12 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
         var writer = output ?? Console.Out;
         if (OperatingSystem.IsWindows())
         {
-            _statusTop = ConsoleViewport.BeginStatusLine(writer);
+            _statusLine = ConsoleViewport.BeginStatusLine(writer);
         }
         else
         {
+            // Enter .NET's non-echoing key mode without consuming queued input.
+            _ = Console.KeyAvailable;
             ConsoleViewport.BeginRelativeStatusLine(writer);
         }
     }
@@ -222,7 +224,8 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
         var writer = output ?? Console.Out;
         if (OperatingSystem.IsWindows())
         {
-            ConsoleViewport.WriteStatusLine(_statusTop, text);
+            ConsoleViewport.WriteStatusLine(
+                _statusLine ?? throw new InvalidOperationException("The temporary terminal line has not been reserved."), text);
         }
         else
         {
@@ -235,7 +238,8 @@ internal sealed class SystemTerminal(TextWriter? output = null) : ITerminal
         var writer = output ?? Console.Out;
         if (OperatingSystem.IsWindows())
         {
-            ConsoleViewport.ClearStatusLine(_statusTop, cells);
+            ConsoleViewport.ClearStatusLine(
+                _statusLine ?? throw new InvalidOperationException("The temporary terminal line has not been reserved."), cells);
         }
         else
         {

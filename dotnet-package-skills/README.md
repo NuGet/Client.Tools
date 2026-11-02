@@ -95,6 +95,13 @@ The label stays static between terminal width changes. The line clears when the 
 finishes, before the results or skill picker appear.
 The indicator uses stderr and is disabled in CI, unsupported terminals, or when stdin,
 stdout, or stderr is redirected; redirected output stays unchanged.
+On Unix, the CLI enters .NET's non-echoing key mode without reading input. SDK subprocesses
+receive closed stdin, so typed-ahead keys stay available to the CLI picker instead of
+echoing over the progress line or reaching the SDK. Normal terminal modes are restored
+when the CLI process exits.
+On Windows, the indicator follows its owned text through console reflow and does not change
+the live cursor or viewport. If that text is missing or ambiguous after a resize, it stops
+rather than overwriting history.
 If the terminal cannot display or clear the indicator, the tool reports a warning without
 changing the package results or replacing an SDK error.
 
