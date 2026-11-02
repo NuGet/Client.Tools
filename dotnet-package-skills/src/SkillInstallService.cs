@@ -246,7 +246,8 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
             candidates.AddRange(skills);
             if (skills.Count == 0)
             {
-                ignored.Add(new IgnoredPackage(id, PackagePathResolver.NormalizeVersion(version), "no valid bundled skills"));
+                ignored.Add(new IgnoredPackage(
+                    id, PackagePathResolver.NormalizeVersion(version), IgnoredPackage.NoValidBundledSkillsReason));
             }
         }
 

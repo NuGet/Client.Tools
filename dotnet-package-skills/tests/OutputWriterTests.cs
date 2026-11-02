@@ -77,6 +77,58 @@ public class OutputWriterTests
         Assert.Contains("the destination path already exists as a file", report);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Ignored_packages_do_not_repeat_the_shared_reason(bool copied)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with
+        {
+            Ignored =
+            [
+                new IgnoredPackage("Zeta", "2.0.0", "no valid bundled skills"),
+                new IgnoredPackage("Empty", "3.0.0", "no valid bundled skills"),
+                new IgnoredPackage("Empty", "1.0.0", "no valid bundled skills"),
+            ],
+        };
+
+        new OutputWriter(output).WriteInstallReport(result, copied);
+
+        var report = output.ToString();
+        Assert.Contains(
+            $"Ignored 3 packages without valid bundled skills:{Environment.NewLine}" +
+            $"  Empty 1.0.0{Environment.NewLine}" +
+            $"  Empty 3.0.0{Environment.NewLine}" +
+            $"  Zeta 2.0.0{Environment.NewLine}",
+            report);
+        Assert.DoesNotContain("no valid bundled skills", report);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Ignored_packages_keep_specific_diagnostics(bool copied)
+    {
+        using var output = new StringWriter();
+        var result = ResultWithCollision() with
+        {
+            Ignored =
+            [
+                new IgnoredPackage("Empty", "3.0.0", "no valid bundled skills"),
+                new IgnoredPackage("Invalid", "2.0.0", WithControls("skill metadata is invalid")),
+            ],
+        };
+
+        new OutputWriter(output).WriteInstallReport(result, copied);
+
+        var report = output.ToString();
+        Assert.Contains($"  Empty 3.0.0{Environment.NewLine}", report);
+        Assert.Contains($"  Invalid 2.0.0: skill metadata is invalid{Environment.NewLine}", report);
+        Assert.DoesNotContain("no valid bundled skills", report);
+        AssertPlainText(report);
+    }
+
     [Fact]
     public void Skills_whose_package_left_the_target_are_listed_with_stale_option_guidance()
     {

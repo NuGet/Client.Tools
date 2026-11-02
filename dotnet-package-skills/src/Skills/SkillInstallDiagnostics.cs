@@ -2,7 +2,10 @@ using DotnetPackageSkills.NuGet;
 
 namespace DotnetPackageSkills.Skills;
 
-public sealed record IgnoredPackage(string PackageId, string PackageVersion, string Reason);
+public sealed record IgnoredPackage(string PackageId, string PackageVersion, string Reason)
+{
+    internal const string NoValidBundledSkillsReason = "no valid bundled skills";
+}
 
 public sealed record PackageVersionWarning(string PackageId, IReadOnlyList<string> Versions);
 

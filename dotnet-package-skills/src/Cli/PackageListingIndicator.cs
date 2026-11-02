@@ -5,7 +5,7 @@ namespace DotnetPackageSkills.Cli;
 internal sealed class PackageListingIndicator : IDisposable
 {
     private const string Frames = "|/-\\";
-    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(250);
     private readonly ITerminal _terminal;
     private readonly TextWriter _error;
     private readonly ITimer? _timer;
