@@ -92,7 +92,7 @@ public class DestinationLocatorTests
     }
 
     [Fact]
-    public void An_unreadable_directory_does_not_silently_fall_back()
+    public void A_nonexistent_directory_does_not_silently_fall_back()
     {
         using var temp = new TempDirectory();
 
