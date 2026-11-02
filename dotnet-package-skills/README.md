@@ -362,6 +362,16 @@ This discovery changes only the default skills destination, not which projects s
 references. Source auto-detection still searches the current directory; an explicit `--source`
 and a relative `--global-packages` still resolve from the invocation directory.
 
+When the implicit destination is above the invocation directory, a full-target `install`
+(without `--package`) or `uninstall --stale` requires an explicit `--source` or `--destination`.
+Otherwise a single project's references could incorrectly classify shared skills needed by
+sibling projects as stale. Prefer `--source` with the repository solution to cover every project.
+Use `--source .` only when intentionally applying the current project's scope to that shared
+destination. Explicit package operations and read-only `list` do not require this confirmation.
+
+If an ancestor cannot be enumerated, the error names that directory. Fix its permissions or
+pass an explicit `--destination` to bypass discovery.
+
 Existing skills in a previously used subdirectory are not moved automatically. Name that
 folder with `--destination` to list or uninstall them.
 

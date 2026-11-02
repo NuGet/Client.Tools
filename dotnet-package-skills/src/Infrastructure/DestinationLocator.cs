@@ -22,12 +22,23 @@ internal static class DestinationLocator
                 return Path.GetFullPath(InstallRequest.DefaultDestination, directory.FullName);
             }
 
-            if (directory.EnumerateFiles().Any(file =>
+            try
+            {
+                if (directory.EnumerateFiles().Any(file =>
                     file.Extension.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
                     file.Extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase)) ||
-                File.Exists(git))
+                    File.Exists(git))
+                {
+                    return Path.GetFullPath(InstallRequest.DefaultDestination, directory.FullName);
+                }
+            }
+            catch (UnauthorizedAccessException error)
             {
-                return Path.GetFullPath(InstallRequest.DefaultDestination, directory.FullName);
+                throw new PackageSkillsException(
+                    $"Could not read directory '{directory.FullName}' while discovering the default skills destination. " +
+                    "Check its permissions or pass an explicit --destination to bypass discovery. " +
+                    "No skills were changed.",
+                    error);
             }
         }
 

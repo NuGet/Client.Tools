@@ -120,9 +120,12 @@ public class DestinationCommandLineTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Source_and_cache_paths_keep_using_the_invocation_directory(bool explicitSource)
+    [InlineData("list", false, false)]
+    [InlineData("list", true, false)]
+    [InlineData("install", true, false)]
+    [InlineData("install", false, true)]
+    public void Source_and_cache_paths_keep_using_the_invocation_directory(
+        string command, bool explicitSource, bool explicitDestination)
     {
         using var temp = new TempDirectory();
         temp.CreateDirectory(".git");
@@ -133,16 +136,78 @@ public class DestinationCommandLineTests
         var runner = new FakeDotnet();
         var args = new List<string>
         {
-            "install", "--global-packages", Path.GetRelativePath(invocation, temp.Combine("packages")),
+            command, "--global-packages", Path.GetRelativePath(invocation, temp.Combine("packages")),
         };
         if (explicitSource) { args.AddRange(["--source", "App.csproj"]); }
+        if (explicitDestination) { args.AddRange(["--destination", temp.Combine(".agents", "skills")]); }
 
         Invoke(invocation, runner, [.. args]);
 
-        Assert.True(File.Exists(temp.Combine(".agents", "skills", "usage", "SKILL.md")));
+        Assert.Equal(command == "install", File.Exists(temp.Combine(".agents", "skills", "usage", "SKILL.md")));
         var call = Assert.Single(runner.Invocations);
         Assert.Contains(target, call.Arguments);
         Assert.Equal(invocation, call.WorkingDirectory);
+    }
+
+    [Theory]
+    [InlineData("install", "")]
+    [InlineData("install", "--dry-run")]
+    [InlineData("install", "--interactive")]
+    [InlineData("uninstall", "")]
+    [InlineData("uninstall", "--dry-run")]
+    [InlineData("uninstall", "--interactive")]
+    public void Implicit_project_scope_cannot_modify_a_shared_ancestor_manifest(string command, string option)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        temp.CreateFile("Repo.sln");
+        temp.CreateFile("src/App1/App1.csproj");
+        temp.CreateFile("src/App2/App2.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        temp.CreatePackageWithSkill("Sibling.Package", "1.0.0", "sibling");
+        var runner = new FakeDotnet();
+        Invoke(temp.Path, runner, "install", "--package", "Mockly@1.0.0", "Sibling.Package@1.0.0",
+            "--global-packages", temp.Combine("packages"));
+        var destination = temp.Combine(".agents", "skills");
+        var manifest = File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName));
+        var sibling = File.ReadAllBytes(Path.Combine(destination, "sibling", "SKILL.md"));
+        var args = new List<string> { command };
+        if (command == "uninstall") { args.Add("--stale"); }
+        else { args.AddRange(["--global-packages", temp.Combine("packages")]); }
+        if (option.Length > 0) { args.Add(option); }
+
+        Assert.Equal(1, CommandLineBuilder.Invoke([.. args], runner,
+            workingDirectory: temp.Combine("src", "App1")));
+
+        Assert.Empty(runner.Invocations);
+        Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
+        Assert.Equal(sibling, File.ReadAllBytes(Path.Combine(destination, "sibling", "SKILL.md")));
+        Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+    }
+
+    [Theory]
+    [InlineData("--source")]
+    [InlineData("--destination")]
+    public void Explicit_scope_allows_stale_comparison_against_the_shared_manifest(string option)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        var solution = temp.CreateFile("Repo.sln");
+        var invocation = temp.CreateDirectory("src", "App1");
+        temp.CreateFile("src/App1/App1.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        temp.CreatePackageWithSkill("Sibling.Package", "1.0.0", "sibling");
+        var runner = new FakeDotnet();
+        Invoke(temp.Path, runner, "install", "--package", "Mockly@1.0.0", "Sibling.Package@1.0.0",
+            "--global-packages", temp.Combine("packages"));
+        var destination = temp.Combine(".agents", "skills");
+        var value = option == "--source" ? Path.GetRelativePath(invocation, solution) : destination;
+
+        Invoke(invocation, runner, "uninstall", "--stale", option, value);
+
+        Assert.Single(runner.Invocations);
+        Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+        Assert.False(File.Exists(Path.Combine(destination, "sibling", "SKILL.md")));
     }
 
     [Theory]

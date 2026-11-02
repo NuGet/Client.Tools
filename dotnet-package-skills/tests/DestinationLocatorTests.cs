@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using DotnetPackageSkills.Infrastructure;
 
 namespace DotnetPackageSkills.Tests;
@@ -107,5 +109,43 @@ public class DestinationLocatorTests
         Assert.Empty(DestinationLocator.Ancestors(root));
         Assert.Equal(Path.Combine(root, ".agents", "skills"), DestinationLocator.Resolve(null, root));
         Assert.DoesNotContain(DestinationLocator.Ancestors(temp.Path), directory => directory.Parent is null);
+    }
+
+    [WindowsTheory]
+    [InlineData("current")]
+    [InlineData("ancestor")]
+    public void Unreadable_discovery_directories_name_the_path_and_explicit_destination_workaround(string mode)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("This fixture uses Windows directory access rules.");
+        }
+
+        using var temp = new TempDirectory();
+        var invocation = mode == "current" ? temp.Path : temp.CreateDirectory("nested");
+        var directory = new DirectoryInfo(temp.Path);
+        var original = directory.GetAccessControl(AccessControlSections.Access)
+            .GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        var denied = directory.GetAccessControl(AccessControlSections.Access);
+        denied.AddAccessRule(new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny));
+        directory.SetAccessControl(denied);
+        try
+        {
+            Assert.Throws<UnauthorizedAccessException>(() => directory.EnumerateFiles().ToArray());
+            var error = Assert.Throws<PackageSkillsException>(() => DestinationLocator.Resolve(null, invocation));
+            Assert.Contains(temp.Path, error.Message);
+            Assert.Contains("--destination", error.Message);
+            Assert.Contains("bypass discovery", error.Message);
+            Assert.IsType<UnauthorizedAccessException>(error.InnerException);
+            Assert.Equal(Path.Combine(invocation, "custom-skills"),
+                DestinationLocator.Resolve("custom-skills", invocation));
+        }
+        finally
+        {
+            var restored = new DirectorySecurity();
+            restored.SetSecurityDescriptorSddlForm(original, AccessControlSections.Access);
+            directory.SetAccessControl(restored);
+        }
     }
 }
