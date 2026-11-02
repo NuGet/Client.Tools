@@ -3,9 +3,9 @@ namespace DotnetPackageSkills.Tests;
 /// <summary>A scratch directory that cleans itself up, for tests that touch the file system.</summary>
 public sealed class TempDirectory : IDisposable
 {
-    public TempDirectory()
+    public TempDirectory(string? basePath = null)
     {
-        Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dps-tests-" + Guid.NewGuid().ToString("N")[..12]);
+        Path = System.IO.Path.Combine(basePath ?? System.IO.Path.GetTempPath(), "dps-tests-" + Guid.NewGuid().ToString("N")[..12]);
         Directory.CreateDirectory(Path);
     }
 

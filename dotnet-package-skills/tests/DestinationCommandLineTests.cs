@@ -150,6 +150,63 @@ public class DestinationCommandLineTests
     }
 
     [Theory]
+    [InlineData("install", ".git")]
+    [InlineData("install", "App.sln")]
+    [InlineData("install", "App.slnx")]
+    [InlineData("install", null)]
+    [InlineData("uninstall", ".git")]
+    [InlineData("uninstall", "App.sln")]
+    [InlineData("uninstall", "App.slnx")]
+    [InlineData("uninstall", null)]
+    public void Implicit_invocation_local_scope_allows_full_install_and_stale_cleanup(string command, string? marker)
+    {
+        var basePath = marker is null && OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp")
+            : null;
+        using var temp = new TempDirectory(basePath);
+        var project = temp.CreateFile("App.csproj");
+        if (marker == ".git") { temp.CreateDirectory(marker); }
+        else if (marker is not null) { temp.CreateFile(marker); }
+        else
+        {
+            foreach (var directory in DestinationLocator.Ancestors(temp.Path))
+            {
+                Assert.False(Directory.Exists(Path.Combine(directory.FullName, ".git")));
+                Assert.DoesNotContain(directory.EnumerateFiles(), file =>
+                    file.Name.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                    file.Extension.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
+                    file.Extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        var destination = temp.Combine(".agents", "skills");
+        var runner = new FakeDotnet();
+        if (command == "uninstall")
+        {
+            temp.CreatePackageWithSkill("Old.Package", "1.0.0", "old-skill");
+            Invoke(temp.Path, runner, "install", "--package", "Mockly@1.0.0", "Old.Package@1.0.0",
+                "--global-packages", temp.Combine("packages"));
+            Assert.Empty(runner.Invocations);
+            Assert.True(File.Exists(Path.Combine(destination, "old-skill", "SKILL.md")));
+            Invoke(temp.Path, runner, "uninstall", "--stale");
+        }
+        else
+        {
+            Invoke(temp.Path, runner, "install", "--global-packages", temp.Combine("packages"));
+        }
+
+        var target = marker is "App.sln" or "App.slnx" ? temp.Combine(marker) : project;
+        var call = Assert.Single(runner.Invocations);
+        Assert.Equal(["list", target, "package", "--no-restore", "--format", "json"], call.Arguments);
+        Assert.Equal(temp.Path, call.WorkingDirectory);
+        Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+        Assert.False(Directory.Exists(Path.Combine(destination, "old-skill")));
+        Assert.Equal(new TrackedSkill("mockly", "1.0.0", "usage"),
+            Assert.Single(InstallManifest.Load(destination).EnumerateSkills()));
+    }
+
+    [Theory]
     [InlineData("install", "")]
     [InlineData("install", "--dry-run")]
     [InlineData("install", "--interactive")]
