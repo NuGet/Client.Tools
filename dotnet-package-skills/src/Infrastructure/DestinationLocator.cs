@@ -17,10 +17,15 @@ internal static class DestinationLocator
         foreach (var directory in ancestors)
         {
             var git = Path.Combine(directory.FullName, ".git");
-            if (Directory.Exists(git) || File.Exists(git) ||
-                directory.EnumerateFiles().Any(file =>
+            if (Directory.Exists(git))
+            {
+                return Path.GetFullPath(InstallRequest.DefaultDestination, directory.FullName);
+            }
+
+            if (directory.EnumerateFiles().Any(file =>
                     file.Extension.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
-                    file.Extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase)))
+                    file.Extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase)) ||
+                File.Exists(git))
             {
                 return Path.GetFullPath(InstallRequest.DefaultDestination, directory.FullName);
             }
@@ -29,9 +34,9 @@ internal static class DestinationLocator
         return Path.GetFullPath(InstallRequest.DefaultDestination, workingDirectory);
     }
 
-    private static IEnumerable<DirectoryInfo> Ancestors(string workingDirectory)
+    internal static IEnumerable<DirectoryInfo> Ancestors(string workingDirectory)
     {
-        for (DirectoryInfo? directory = new(workingDirectory); directory is not null; directory = directory.Parent)
+        for (DirectoryInfo? directory = new(workingDirectory); directory?.Parent is not null; directory = directory.Parent)
         {
             yield return directory;
         }

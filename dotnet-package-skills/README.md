@@ -348,6 +348,11 @@ it is `.agents/skills` beneath the current directory. This follows the nearest-m
 of the .NET SDK's automatic local tool-manifest creation: a closer solution directory wins
 over a Git root farther up.
 
+As in the SDK's directory-selection routine, discovery stops before examining the filesystem
+root. At each directory it checks for a `.git` directory first, then enumerates solution files,
+and then checks for a `.git` file. Enumeration failures are reported rather than bypassed
+because a `.git` file exists.
+
 For example, running from `repo/src/App` installs into `repo/.agents/skills` when `repo`
 contains `.git` and neither `src` nor `App` has another marker. Listing and uninstalling from
 that subdirectory use the same skills folder and ownership manifest, including with

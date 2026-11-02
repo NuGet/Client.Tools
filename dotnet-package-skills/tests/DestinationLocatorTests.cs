@@ -97,4 +97,15 @@ public class DestinationLocatorTests
         Assert.Throws<DirectoryNotFoundException>(() =>
             DestinationLocator.Resolve(null, temp.Combine("nonexistent")));
     }
+
+    [Fact]
+    public void The_filesystem_root_is_not_examined_and_falls_back_to_the_invocation_directory()
+    {
+        using var temp = new TempDirectory();
+        var root = Path.GetPathRoot(temp.Path)!;
+
+        Assert.Empty(DestinationLocator.Ancestors(root));
+        Assert.Equal(Path.Combine(root, ".agents", "skills"), DestinationLocator.Resolve(null, root));
+        Assert.DoesNotContain(DestinationLocator.Ancestors(temp.Path), directory => directory.Parent is null);
+    }
 }
