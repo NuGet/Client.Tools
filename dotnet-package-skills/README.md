@@ -362,12 +362,23 @@ This discovery changes only the default skills destination, not which projects s
 references. Source auto-detection still searches the current directory; an explicit `--source`
 and a relative `--global-packages` still resolve from the invocation directory.
 
-When the implicit destination is above the invocation directory, a full-target `install`
-(without `--package`) or `uninstall --stale` requires an explicit `--source` or `--destination`.
-Otherwise a single project's references could incorrectly classify shared skills needed by
-sibling projects as stale. Prefer `--source` with the repository solution to cover every project.
-Use `--source .` only when intentionally applying the current project's scope to that shared
-destination. Explicit package operations and read-only `list` do not require this confirmation.
+When both the source and destination are automatic and the destination is above the invocation
+directory, operations are limited to package IDs in the selected project's package results.
+`install` installs or updates those packages without reporting other installed packages as stale
+or blocking the interactive picker because of them. `uninstall --stale` removes old versions only
+for package IDs still referenced by that source. Both preserve skills for packages absent from
+its results, including during interactive and dry-run operations.
+
+For example, if `App1` references Package.A and `App2` references Package.B, running from
+`repo/src/App1` updates Package.A's skills in `repo/.agents/skills` and leaves Package.B's skills
+alone. No explicit `--source` or `--destination` is needed.
+
+The shared manifest does not record project ownership, so this automatic project scope cannot
+remove a package that disappeared entirely from `App1`: it might still belong to `App2`.
+Use an explicit `--source` with the repository solution for a complete stale comparison.
+Explicit source/destination choices retain their existing authoritative comparison behavior;
+`--source .` compares the entire destination against only the current project's results.
+Explicit package operations and read-only `list` retain their existing behavior.
 
 If an ancestor cannot be enumerated, the error names that directory. Fix its permissions or
 pass an explicit `--destination` to bypass discovery.

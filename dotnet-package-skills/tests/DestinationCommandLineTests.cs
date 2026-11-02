@@ -4,9 +4,10 @@ using DotnetPackageSkills.Skills;
 
 namespace DotnetPackageSkills.Tests;
 
+[Collection("Console output")]
 public class DestinationCommandLineTests
 {
-    private sealed class FakeDotnet : IProcessRunner
+    private sealed class FakeDotnet(string? packageOutput = null) : IProcessRunner
     {
         public List<(IReadOnlyList<string> Arguments, string? WorkingDirectory)> Invocations { get; } = [];
 
@@ -14,7 +15,7 @@ public class DestinationCommandLineTests
         {
             Invocations.Add((arguments, workingDirectory));
             Assert.Contains("list", arguments);
-            return new ProcessResult(0,
+            return new ProcessResult(0, packageOutput ??
                 """
                 {"projects":[{"frameworks":[{"framework":"net8.0","topLevelPackages":[
                   {"id":"Mockly","resolvedVersion":"1.0.0"}
@@ -27,8 +28,26 @@ public class DestinationCommandLineTests
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        Assert.Equal(0, CommandLineBuilder.Invoke(args, runner, output, error, workingDirectory));
+        Assert.Equal(0, InvokeCapturingConsole(workingDirectory, runner, output, error, args));
         Assert.Empty(error.ToString());
+    }
+
+    private static int InvokeCapturingConsole(
+        string workingDirectory, IProcessRunner runner, TextWriter output, TextWriter error, params string[] args)
+    {
+        var originalOutput = Console.Out;
+        var originalError = Console.Error;
+        try
+        {
+            Console.SetOut(output);
+            Console.SetError(error);
+            return CommandLineBuilder.Invoke(args, runner, output, error, workingDirectory);
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            Console.SetError(originalError);
+        }
     }
 
     [Theory]
@@ -213,7 +232,7 @@ public class DestinationCommandLineTests
     [InlineData("uninstall", "")]
     [InlineData("uninstall", "--dry-run")]
     [InlineData("uninstall", "--interactive")]
-    public void Implicit_project_scope_cannot_modify_a_shared_ancestor_manifest(string command, string option)
+    public void Implicit_project_scope_preserves_sibling_packages_in_a_shared_ancestor_manifest(string command, string option)
     {
         using var temp = new TempDirectory();
         temp.CreateDirectory(".git");
@@ -233,13 +252,114 @@ public class DestinationCommandLineTests
         else { args.AddRange(["--global-packages", temp.Combine("packages")]); }
         if (option.Length > 0) { args.Add(option); }
 
-        Assert.Equal(1, CommandLineBuilder.Invoke([.. args], runner,
-            workingDirectory: temp.Combine("src", "App1")));
+        Invoke(temp.Combine("src", "App1"), runner, [.. args]);
 
-        Assert.Empty(runner.Invocations);
+        Assert.Single(runner.Invocations);
         Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
         Assert.Equal(sibling, File.ReadAllBytes(Path.Combine(destination, "sibling", "SKILL.md")));
         Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+    }
+
+    [Theory]
+    [InlineData("install", false)]
+    [InlineData("install", true)]
+    [InlineData("uninstall", false)]
+    [InlineData("uninstall", true)]
+    public void Implicit_project_scope_compares_versions_only_for_referenced_packages(string command, bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        var target = temp.CreateFile("src/App1/App1.csproj");
+        temp.CreateFile("src/App2/App2.csproj");
+        temp.CreatePackageWithSkill("Mockly", "0.5.0", "usage", "dropped");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage", "new-skill");
+        temp.CreatePackageWithSkill("Sibling.Package", "1.0.0", "sibling");
+        var runner = new FakeDotnet();
+        Invoke(temp.Path, runner, "install", "--package", "Mockly@0.5.0", "Sibling.Package@1.0.0",
+            "--global-packages", temp.Combine("packages"));
+        var destination = temp.Combine(".agents", "skills");
+        var manifest = File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName));
+        var sibling = File.ReadAllBytes(Path.Combine(destination, "sibling", "SKILL.md"));
+        var args = new List<string> { command };
+        if (command == "uninstall") { args.Add("--stale"); }
+        else { args.AddRange(["--global-packages", temp.Combine("packages")]); }
+        if (dryRun) { args.Add("--dry-run"); }
+
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(0, InvokeCapturingConsole(Path.GetDirectoryName(target)!, runner, output, error, [.. args]));
+
+        Assert.Empty(error.ToString());
+        Assert.DoesNotContain("sibling", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        var call = Assert.Single(runner.Invocations);
+        Assert.Contains(target, call.Arguments);
+        Assert.Equal(Path.GetDirectoryName(target), call.WorkingDirectory);
+        Assert.Equal(sibling, File.ReadAllBytes(Path.Combine(destination, "sibling", "SKILL.md")));
+        Assert.Contains(new TrackedSkill("sibling.package", "1.0.0", "sibling"),
+            InstallManifest.Load(destination).EnumerateSkills());
+        Assert.Equal(dryRun, Directory.Exists(Path.Combine(destination, "dropped")));
+        Assert.Equal(command == "install" || dryRun, Directory.Exists(Path.Combine(destination, "usage")));
+        Assert.Equal(command == "install" && !dryRun, Directory.Exists(Path.Combine(destination, "new-skill")));
+        if (dryRun) { Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName))); }
+    }
+
+    [Theory]
+    [InlineData("install", "")]
+    [InlineData("install", "--dry-run")]
+    [InlineData("install", "--interactive")]
+    [InlineData("uninstall", "")]
+    [InlineData("uninstall", "--dry-run")]
+    [InlineData("uninstall", "--interactive")]
+    public void An_empty_automatic_project_scope_preserves_every_shared_package(string command, string option)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        var target = temp.CreateFile("src/App/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        var runner = new FakeDotnet(
+            """{"projects":[{"frameworks":[{"framework":"net8.0","topLevelPackages":[]}]}]}""");
+        Invoke(temp.Path, runner, "install", "-p", "Mockly@1.0.0",
+            "--global-packages", temp.Combine("packages"));
+        var destination = temp.Combine(".agents", "skills");
+        var manifest = File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName));
+        var skill = File.ReadAllBytes(Path.Combine(destination, "usage", "SKILL.md"));
+        var args = new List<string> { command };
+        if (command == "uninstall") { args.Add("--stale"); }
+        else { args.AddRange(["--global-packages", temp.Combine("packages")]); }
+        if (option.Length > 0) { args.Add(option); }
+
+        Invoke(Path.GetDirectoryName(target)!, runner, [.. args]);
+
+        Assert.Single(runner.Invocations);
+        Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
+        Assert.Equal(skill, File.ReadAllBytes(Path.Combine(destination, "usage", "SKILL.md")));
+    }
+
+    [Fact]
+    public void Interactive_project_install_checks_stale_versions_only_for_referenced_packages()
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        var target = temp.CreateFile("src/App/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "0.5.0", "usage");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        temp.CreatePackageWithSkill("Sibling.Package", "1.0.0", "sibling");
+        var runner = new FakeDotnet();
+        Invoke(temp.Path, runner, "install", "-p", "Mockly@0.5.0", "Sibling.Package@1.0.0",
+            "--global-packages", temp.Combine("packages"));
+        var destination = temp.Combine(".agents", "skills");
+        var manifest = File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName));
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        Assert.Equal(1, InvokeCapturingConsole(Path.GetDirectoryName(target)!, runner, output, error,
+            "install", "--interactive", "--global-packages", temp.Combine("packages")));
+
+        Assert.Contains("usage", error.ToString());
+        Assert.DoesNotContain("sibling", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Which skills", output.ToString());
+        Assert.Single(runner.Invocations);
+        Assert.Equal(manifest, File.ReadAllBytes(Path.Combine(destination, InstallManifest.FileName)));
     }
 
     [Theory]

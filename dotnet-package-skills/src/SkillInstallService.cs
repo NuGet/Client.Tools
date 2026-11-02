@@ -26,6 +26,9 @@ public sealed record InstallRequest
     /// <summary>An explicit cache path, resolved relative to <see cref="WorkingDirectory"/>.</summary>
     public string? GlobalPackagesOverride { get; init; }
     public bool DryRun { get; init; }
+
+    /// <summary>Limit comparisons in a shared destination to package IDs present in the source.</summary>
+    public bool PreserveUnreferencedPackages { get; init; }
 }
 
 /// <summary>What an install or a list produced.</summary>
@@ -328,9 +331,8 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                     skill.RelativePath, skill.SkillName))],
             Errors = [.. discovered.Errors.Concat(outcome.Errors)
                 .DistinctBy(error => error.RelativePath, StringComparer.OrdinalIgnoreCase)],
-            // A target lists every package it references, so anything it did not offer has left
-            // the project. Named packages say nothing about the rest, so they report nothing.
-            Unreferenced = request.Packages.Count == 0 && choice is null ? outcome.Untouched : [],
+            Unreferenced = request.Packages.Count == 0 && choice is null && !request.PreserveUnreferencedPackages
+                ? outcome.Untouched : [],
             AllCandidates = null,
         };
     }
@@ -381,7 +383,7 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         if (request.Packages.Count == 0)
         {
             RequireEveryPackageInDirectory(discovered);
-            RequireNoStaleSkills(discovered, installed);
+            RequireNoStaleSkills(discovered, installed, request.PreserveUnreferencedPackages);
         }
         var preview = Install(
             request with { DryRun = true },
@@ -398,10 +400,11 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
     private static void RequireNoStaleSkills(
         InstallResult discovered,
-        IReadOnlyCollection<TrackedSkill> installed)
+        IReadOnlyCollection<TrackedSkill> installed,
+        bool preserveUnreferencedPackages)
     {
         var stale = installed
-            .Where(entry => SkillInstaller.IsStale(entry, discovered.ResolvedPackages))
+            .Where(entry => SkillInstaller.IsStale(entry, discovered.ResolvedPackages, preserveUnreferencedPackages))
             .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
             .ToList();
 
@@ -457,10 +460,12 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
         bool dryRun,
         IReadOnlyCollection<string>? only = null,
         IReadOnlyCollection<TrackedSkill>? expectedInstalled = null,
-        IReadOnlyCollection<PackageReferenceInfo>? staleAgainst = null)
+        IReadOnlyCollection<PackageReferenceInfo>? staleAgainst = null,
+        bool preserveUnreferencedPackages = false)
     {
         var root = Path.GetFullPath(destination, workingDirectory);
-        return installer.Uninstall(root, packageId, packageVersion, dryRun, only, expectedInstalled, staleAgainst);
+        return installer.Uninstall(root, packageId, packageVersion, dryRun, only, expectedInstalled, staleAgainst,
+            preserveUnreferencedPackages);
     }
 
     /// <summary>

@@ -1182,6 +1182,25 @@ public class SkillInstallerTests
         Assert.Equal(equivalent, SkillInstaller.Matches(entry, "MOCKLY", referenced));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Package_scoped_stale_checks_preserve_unreferenced_packages_and_compare_all_matching_versions(
+        bool preserveUnreferencedPackages)
+    {
+        var entry = new TrackedSkill("Mockly", "1.10.0", "usage");
+
+        Assert.Equal(!preserveUnreferencedPackages,
+            SkillInstaller.IsStale(entry, [], preserveUnreferencedPackages));
+        Assert.Equal(!preserveUnreferencedPackages,
+            SkillInstaller.IsStale(entry, [new PackageReferenceInfo("Other", "1.10.0")], preserveUnreferencedPackages));
+        Assert.True(SkillInstaller.IsStale(entry,
+            [new PackageReferenceInfo("MOCKLY", "2.0.0")], preserveUnreferencedPackages));
+        Assert.False(SkillInstaller.IsStale(entry,
+            [new PackageReferenceInfo("Mockly", "2.0.0"), new PackageReferenceInfo("mockly", "1.10+Build")],
+            preserveUnreferencedPackages));
+    }
+
     private static (string Path, string Contents)[] Snapshot(string root) =>
         Directory.Exists(root)
             ?

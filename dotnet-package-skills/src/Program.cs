@@ -139,12 +139,6 @@ namespace DotnetPackageSkills.Cli
             install.SetAction(parseResult => Run(() =>
             {
                 var request = BuildRequest(parseResult);
-                if (request.Packages.Count == 0)
-                {
-                    RequireExplicitSourceScope(
-                        parseResult.GetValue(source), parseResult.GetValue(destination),
-                        request.Destination, request.WorkingDirectory, "install");
-                }
                 var service = new SkillInstallService(runner);
 
                 var result = parseResult.GetValue(interactive)
@@ -222,12 +216,9 @@ namespace DotnetPackageSkills.Cli
                     parseResult.GetValue(uninstallDestination), invocationDirectory);
                 var isDryRun = parseResult.GetValue(dryRun);
                 var (id, version) = ParseUninstallFilter(parseResult.GetValue(uninstallPackage));
-                if (parseResult.GetValue(stale))
-                {
-                    RequireExplicitSourceScope(
-                        parseResult.GetValue(staleSource), parseResult.GetValue(uninstallDestination),
-                        destinationValue, invocationDirectory, "uninstall --stale");
-                }
+                var preserveUnreferencedPackages = UsesPartialSourceScope(
+                    parseResult.GetValue(staleSource), parseResult.GetValue(uninstallDestination),
+                    destinationValue, invocationDirectory);
                 var service = new SkillInstallService(runner);
                 var references = parseResult.GetValue(stale)
                     ? service.ReadReferences(parseResult.GetValue(staleSource), invocationDirectory)
@@ -237,7 +228,8 @@ namespace DotnetPackageSkills.Cli
 
                 if (parseResult.GetValue(uninstallInteractive))
                 {
-                    choice = ChooseWhatToRemove(destinationValue, invocationDirectory, id, version, references);
+                    choice = ChooseWhatToRemove(destinationValue, invocationDirectory, id, version, references,
+                        preserveUnreferencedPackages);
 
                     if (choice is null)
                     {
@@ -247,7 +239,7 @@ namespace DotnetPackageSkills.Cli
                 }
 
                 var removed = service.Uninstall(destinationValue, invocationDirectory, id, version, isDryRun,
-                    choice?.Selected, choice?.ExpectedInstalled, references?.Packages);
+                    choice?.Selected, choice?.ExpectedInstalled, references?.Packages, preserveUnreferencedPackages);
 
                 new OutputWriter(Console.Out).WriteUninstallReport(removed, destinationValue, isDryRun, references?.Target);
             }));
@@ -265,39 +257,29 @@ namespace DotnetPackageSkills.Cli
             InstallRequest BuildRequest(ParseResult parseResult)
             {
                 var invocationDirectory = workingDirectory ?? Directory.GetCurrentDirectory();
+                var destinationValue = DestinationLocator.Resolve(parseResult.GetValue(destination), invocationDirectory);
                 return new InstallRequest
                 {
                     Target = parseResult.GetValue(source),
                     Packages = [.. (parseResult.GetValue(package) ?? []).Select(PackageCoordinate.Parse)],
-                    Destination = DestinationLocator.Resolve(parseResult.GetValue(destination), invocationDirectory),
+                    Destination = destinationValue,
                     WorkingDirectory = invocationDirectory,
                     GlobalPackagesOverride = parseResult.GetValue(globalPackages),
                     DryRun = parseResult.GetValue(dryRun),
+                    PreserveUnreferencedPackages = UsesPartialSourceScope(
+                        parseResult.GetValue(source), parseResult.GetValue(destination),
+                        destinationValue, invocationDirectory),
                 };
             }
         }
 
-        private static void RequireExplicitSourceScope(
+        private static bool UsesPartialSourceScope(
             string? source,
             string? destination,
             string resolvedDestination,
-            string workingDirectory,
-            string operation)
-        {
-            if (!string.IsNullOrWhiteSpace(source) || destination is not null ||
-                Path.GetRelativePath(Path.GetFullPath(DefaultDestination, workingDirectory), resolvedDestination) == ".")
-            {
-                return;
-            }
-
-            throw new PackageSkillsException(
-                $"Cannot {operation} using an automatically selected source and the shared skills destination " +
-                $"'{resolvedDestination}' discovered above the current directory. " +
-                "The source may omit packages used by sibling projects. " +
-                "Pass --source with the repository solution to compare the whole repository, " +
-                "or explicitly choose --source or --destination to confirm the intended scope. " +
-                "No skills were changed.");
-        }
+            string workingDirectory) =>
+            string.IsNullOrWhiteSpace(source) && destination is null &&
+            Path.GetRelativePath(Path.GetFullPath(DefaultDestination, workingDirectory), resolvedDestination) != ".";
 
         /// <summary>
         /// Discovers skills, lets the user pick from the ones not installed yet a page at a time,
@@ -346,12 +328,14 @@ namespace DotnetPackageSkills.Cli
             string workingDirectory,
             string? packageId,
             string? packageVersion,
-            TargetReferences? references)
+            TargetReferences? references,
+            bool preserveUnreferencedPackages)
         {
             var installed = SkillInstallService.InstalledSkills(destination, workingDirectory);
             var matching = installed
                 .Where(entry => SkillInstaller.Matches(entry, packageId, packageVersion))
-                .Where(entry => references is null || SkillInstaller.IsStale(entry, references.Packages))
+                .Where(entry => references is null ||
+                    SkillInstaller.IsStale(entry, references.Packages, preserveUnreferencedPackages))
                 .ToList();
 
             if (matching.Count == 0)

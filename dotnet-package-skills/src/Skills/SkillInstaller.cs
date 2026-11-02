@@ -210,11 +210,23 @@ public sealed class SkillInstaller
     /// <summary>
     /// A tracked skill is stale when the target references no package at its installed version:
     /// the package left the project, or the project now uses another version of it.
+    /// Partial source scopes preserve package IDs absent from the reference graph.
     /// </summary>
-    internal static bool IsStale(TrackedSkill entry, IEnumerable<PackageReferenceInfo> referenced) =>
-        !referenced.Any(package =>
-            package.Id.Equals(entry.Package, StringComparison.OrdinalIgnoreCase) &&
-            SameVersion(package.Version, entry.Version));
+    internal static bool IsStale(
+        TrackedSkill entry,
+        IEnumerable<PackageReferenceInfo> referenced,
+        bool preserveUnreferencedPackages = false)
+    {
+        var referencesPackage = false;
+        foreach (var package in referenced)
+        {
+            if (!package.Id.Equals(entry.Package, StringComparison.OrdinalIgnoreCase)) { continue; }
+            referencesPackage = true;
+            if (SameVersion(package.Version, entry.Version)) { return false; }
+        }
+
+        return referencesPackage || !preserveUnreferencedPackages;
+    }
 
     /// <summary>
     /// Removes skills this tool installed, narrowed to one package, one exact version of it,
@@ -228,6 +240,9 @@ public sealed class SkillInstaller
     /// A target's direct package references. When given, only skills whose installed version
     /// the target does not reference are removed.
     /// </param>
+    /// <param name="preserveUnreferencedPackages">
+    /// When comparing against a partial source, keep package IDs absent from its references.
+    /// </param>
     public IReadOnlyList<TrackedSkill> Uninstall(
         string destinationRoot,
         string? packageId,
@@ -235,7 +250,8 @@ public sealed class SkillInstaller
         bool dryRun,
         IReadOnlyCollection<string>? only = null,
         IReadOnlyCollection<TrackedSkill>? expectedInstalled = null,
-        IReadOnlyCollection<PackageReferenceInfo>? staleAgainst = null)
+        IReadOnlyCollection<PackageReferenceInfo>? staleAgainst = null,
+        bool preserveUnreferencedPackages = false)
     {
         if (packageVersion is not null) { PackageCoordinate.ParseVersion(packageVersion); }
 
@@ -250,7 +266,7 @@ public sealed class SkillInstaller
         CheckOwnershipSnapshot(trackedSkills, expectedInstalled);
         var targeted = trackedSkills
             .Where(entry => Matches(entry, packageId, packageVersion))
-            .Where(entry => staleAgainst is null || IsStale(entry, staleAgainst))
+            .Where(entry => staleAgainst is null || IsStale(entry, staleAgainst, preserveUnreferencedPackages))
             .Where(entry => chosen is null || chosen.Contains(entry.Skill))
             .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
             .ToList();
