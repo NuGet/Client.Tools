@@ -25,12 +25,16 @@ namespace DotnetPackageSkills.Cli
             string[] args,
             IProcessRunner runner,
             TextWriter? output = null,
-            TextWriter? error = null) =>
-            CommandLineDiagnostics.Invoke(Build(runner).Parse(args), output ?? Console.Out, error ?? Console.Error);
+            TextWriter? error = null,
+            string? workingDirectory = null,
+            IEnumerable<DirectoryInfo>? destinationAncestors = null) =>
+            CommandLineDiagnostics.Invoke(Build(runner, workingDirectory, destinationAncestors).Parse(args),
+                output ?? Console.Out, error ?? Console.Error);
 
         public static RootCommand Build() => Build(new ProcessRunner());
 
-        internal static RootCommand Build(IProcessRunner runner)
+        internal static RootCommand Build(
+            IProcessRunner runner, string? workingDirectory = null, IEnumerable<DirectoryInfo>? destinationAncestors = null)
         {
             var source = new Option<string?>("--source", "-s")
             {
@@ -63,11 +67,12 @@ namespace DotnetPackageSkills.Cli
                 }
             });
 
-            var destination = new Option<string>("--destination", "-d")
+            var destination = new Option<string?>("--destination", "-d")
             {
-                Description = $"Folder to copy skills into. Default: {DefaultDestination}",
+                Description = $"Folder to copy skills into. Default: {DefaultDestination} under the nearest " +
+                    "ancestor (including the current directory) containing .git, .sln, or .slnx; " +
+                    "otherwise under the current directory. Explicit relative paths use the current directory.",
                 HelpName = "PATH",
-                DefaultValueFactory = _ => DefaultDestination,
             };
 
             var globalPackages = new Option<string?>("--global-packages")
@@ -122,11 +127,12 @@ namespace DotnetPackageSkills.Cli
             // Its own option rather than the one install uses, because "copy skills into" is
             // nonsense on a command that only deletes. It still has to exist: skills installed
             // to somewhere other than the default are unreachable without it.
-            var uninstallDestination = new Option<string>("--destination", "-d")
+            var uninstallDestination = new Option<string?>("--destination", "-d")
             {
-                Description = $"Folder to remove skills from. Default: {DefaultDestination}",
+                Description = $"Folder to remove skills from. Default: {DefaultDestination} under the nearest " +
+                    "ancestor (including the current directory) containing .git, .sln, or .slnx; " +
+                    "otherwise under the current directory. Explicit relative paths use the current directory.",
                 HelpName = "PATH",
-                DefaultValueFactory = _ => DefaultDestination,
             };
 
             var install = new Command("install", "Copy skills bundled in NuGet packages into the repository.")
@@ -174,7 +180,9 @@ namespace DotnetPackageSkills.Cli
             {
                 Description =
                     "Remove only stale skills: skills whose package the target no longer references, " +
-                    "or references at a different version. Reads the target's package references, " +
+                    "or references at a different version. When source and destination are automatic and the destination " +
+                    "is above the current directory, packages absent from the source are preserved. An explicit --source " +
+                    "or --destination also includes unreferenced packages. Reads the target's package references, " +
                     "so it needs a solution or project.",
             };
 
@@ -208,21 +216,25 @@ namespace DotnetPackageSkills.Cli
             });
             uninstall.SetAction(parseResult => Run(() =>
             {
-                var workingDirectory = Directory.GetCurrentDirectory();
-                var destinationValue = parseResult.GetValue(uninstallDestination) ?? DefaultDestination;
+                var invocationDirectory = workingDirectory ?? Directory.GetCurrentDirectory();
+                var destinationValue = DestinationLocator.Resolve(
+                    parseResult.GetValue(uninstallDestination), invocationDirectory, destinationAncestors);
                 var isDryRun = parseResult.GetValue(dryRun);
                 var (id, version) = ParseUninstallFilter(parseResult.GetValue(uninstallPackage));
-                var root = Path.GetFullPath(destinationValue, workingDirectory);
+                var preserveUnreferencedPackages = UsesPartialSourceScope(
+                    parseResult.GetValue(staleSource), parseResult.GetValue(uninstallDestination),
+                    destinationValue, invocationDirectory);
                 var service = new SkillInstallService(runner);
                 var references = parseResult.GetValue(stale)
-                    ? service.ReadReferences(parseResult.GetValue(staleSource), workingDirectory)
+                    ? service.ReadReferences(parseResult.GetValue(staleSource), invocationDirectory)
                     : null;
 
                 UninstallChoice? choice = null;
 
                 if (parseResult.GetValue(uninstallInteractive))
                 {
-                    choice = ChooseWhatToRemove(destinationValue, workingDirectory, id, version, references);
+                    choice = ChooseWhatToRemove(destinationValue, invocationDirectory, id, version, references,
+                        preserveUnreferencedPackages);
 
                     if (choice is null)
                     {
@@ -231,10 +243,10 @@ namespace DotnetPackageSkills.Cli
                     }
                 }
 
-                var removed = service.Uninstall(destinationValue, workingDirectory, id, version, isDryRun,
-                    choice?.Selected, choice?.ExpectedInstalled, references?.Packages);
+                var removed = service.Uninstall(destinationValue, invocationDirectory, id, version, isDryRun,
+                    choice?.Selected, choice?.ExpectedInstalled, references?.Packages, preserveUnreferencedPackages);
 
-                new OutputWriter(Console.Out).WriteUninstallReport(removed, root, isDryRun, references?.Target);
+                new OutputWriter(Console.Out).WriteUninstallReport(removed, destinationValue, isDryRun, references?.Target);
             }));
 
             return new RootCommand(
@@ -247,16 +259,33 @@ namespace DotnetPackageSkills.Cli
                 install, list, uninstall,
             };
 
-            InstallRequest BuildRequest(ParseResult parseResult) => new()
+            InstallRequest BuildRequest(ParseResult parseResult)
             {
-                Target = parseResult.GetValue(source),
-                Packages = [.. (parseResult.GetValue(package) ?? []).Select(PackageCoordinate.Parse)],
-                Destination = parseResult.GetValue(destination) ?? DefaultDestination,
-                WorkingDirectory = Directory.GetCurrentDirectory(),
-                GlobalPackagesOverride = parseResult.GetValue(globalPackages),
-                DryRun = parseResult.GetValue(dryRun),
-            };
+                var invocationDirectory = workingDirectory ?? Directory.GetCurrentDirectory();
+                var destinationValue = DestinationLocator.Resolve(
+                    parseResult.GetValue(destination), invocationDirectory, destinationAncestors);
+                return new InstallRequest
+                {
+                    Target = parseResult.GetValue(source),
+                    Packages = [.. (parseResult.GetValue(package) ?? []).Select(PackageCoordinate.Parse)],
+                    Destination = destinationValue,
+                    WorkingDirectory = invocationDirectory,
+                    GlobalPackagesOverride = parseResult.GetValue(globalPackages),
+                    DryRun = parseResult.GetValue(dryRun),
+                    PreserveUnreferencedPackages = UsesPartialSourceScope(
+                        parseResult.GetValue(source), parseResult.GetValue(destination),
+                        destinationValue, invocationDirectory),
+                };
+            }
         }
+
+        private static bool UsesPartialSourceScope(
+            string? source,
+            string? destination,
+            string resolvedDestination,
+            string workingDirectory) =>
+            string.IsNullOrWhiteSpace(source) && destination is null &&
+            Path.GetRelativePath(Path.GetFullPath(DefaultDestination, workingDirectory), resolvedDestination) != ".";
 
         /// <summary>
         /// Discovers skills, lets the user pick from the ones not installed yet a page at a time,
@@ -305,12 +334,14 @@ namespace DotnetPackageSkills.Cli
             string workingDirectory,
             string? packageId,
             string? packageVersion,
-            TargetReferences? references)
+            TargetReferences? references,
+            bool preserveUnreferencedPackages)
         {
             var installed = SkillInstallService.InstalledSkills(destination, workingDirectory);
             var matching = installed
                 .Where(entry => SkillInstaller.Matches(entry, packageId, packageVersion))
-                .Where(entry => references is null || SkillInstaller.IsStale(entry, references.Packages))
+                .Where(entry => references is null ||
+                    SkillInstaller.IsStale(entry, references.Packages, preserveUnreferencedPackages))
                 .ToList();
 
             if (matching.Count == 0)

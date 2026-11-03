@@ -183,6 +183,83 @@ public class MultiVersionInstallTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void A_missing_extra_version_does_not_bypass_blocked_replacement_preflight(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        Seed(temp, new TrackedSkill("a", "1.0.0", "usage"), new TrackedSkill("a", "1.0.0", "old-skill"));
+        Directory.Delete(temp.Combine("dest", "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        var manifestBefore = File.ReadAllBytes(temp.Combine("dest", InstallManifest.FileName));
+        temp.CreatePackageWithSkill("A", "2.0.0", "usage", "new-skill");
+        var request = Request(temp, "A@2.0.0", "A@9.0.0") with { DryRun = dryRun };
+
+        var error = Assert.Throws<PackageSkillsException>(() => Service().Install(request));
+
+        Assert.Contains("cannot replace installed skill 'usage'", error.Message);
+        Assert.Contains("destination path is a file", error.Message);
+        Assert.Contains("No skills were changed", error.Message);
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Equal(manifestBefore, File.ReadAllBytes(temp.Combine("dest", InstallManifest.FileName)));
+        Assert.Equal("original:old-skill", File.ReadAllText(temp.Combine("dest", "old-skill", "SKILL.md")));
+        Assert.False(Directory.Exists(temp.Combine("dest", "new-skill")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_still_selected_version_with_a_blocking_file_is_not_replaced_when_an_extra_version_is_missing(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        Seed(temp, new TrackedSkill("a", "1.0.0", "usage"));
+        Directory.Delete(temp.Combine("dest", "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        temp.CreateDirectory("packages", "a", "1.0.0");
+        temp.CreatePackageWithSkill("A", "2.0.0", "usage", "new-skill");
+        var request = Request(temp, "A@1.0.0", "A@2.0.0", "A@9.0.0") with { DryRun = dryRun };
+
+        var result = Service().Install(request);
+
+        Assert.Equal("new-skill", Assert.Single(result.Skills).SkillName);
+        Assert.Equal("usage", Assert.Single(result.Skipped).SkillName);
+        Assert.Empty(result.Errors);
+        Assert.Empty(result.Removed);
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Contains(new TrackedSkill("a", "1.0.0", "usage"),
+            InstallManifest.Load(temp.Combine("dest")).EnumerateSkills());
+        Assert.Equal(!dryRun, Directory.Exists(temp.Combine("dest", "new-skill")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_interactive_add_only_choice_does_not_attempt_a_blocked_replacement_with_a_missing_version(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        Seed(temp, new TrackedSkill("a", "1.0.0", "usage"));
+        Directory.Delete(temp.Combine("dest", "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        temp.CreatePackageWithSkill("A", "2.0.0", "usage", "new-skill");
+        var request = Request(temp, "A@2.0.0", "A@9.0.0") with { DryRun = dryRun };
+        var service = Service();
+        var installed = SkillInstallService.InstalledSkills(temp.Combine("dest"), temp.Path);
+
+        var prepared = service.PrepareInteractiveInstall(request, service.Discover(request), installed);
+        var result = service.Install(request, prepared,
+            new SkillChoice(prepared.Skills) { ExpectedInstalled = installed });
+
+        Assert.Equal("new-skill", Assert.Single(prepared.Skills).SkillName);
+        Assert.Single(result.Skills);
+        Assert.Empty(result.Removed);
+        Assert.Empty(result.Errors);
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Contains(new TrackedSkill("a", "1.0.0", "usage"),
+            InstallManifest.Load(temp.Combine("dest")).EnumerateSkills());
+        Assert.Equal(!dryRun, Directory.Exists(temp.Combine("dest", "new-skill")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Dropped_skill_cleanup_waits_until_every_selected_version_of_the_package_can_be_inspected(bool dryRun)
     {
         using var temp = new TempDirectory();

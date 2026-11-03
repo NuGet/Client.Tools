@@ -106,6 +106,8 @@ changes anything. Restore the project first, and then try again.
 For named selections, a missing extracted version is not evidence that it is skill-free or
 that its installed skills should be removed. Available versions can still install skills, but
 dropped-skill cleanup for that package waits until every selected version can be inspected.
+This does not bypass replacement safety checks: a file obstructing a tracked cross-version
+replacement still stops the install before any writes.
 
 Multiple versions of a package are allowed. The tool classifies the skills, not just the package
 versions:
@@ -325,19 +327,72 @@ versions of that package; `ID@VERSION` removes only that version's skills. `--st
 | --- | --- | --- |
 | `-s, --source <PATH>` | install, list | Solution, project, or directory to read package references from, including to resolve bare package IDs that the manifest does not track. Defaults to searching the current directory. |
 | `-p, --package <ID[@VERSION]>` | install, list | Select packages. A bare ID expands all destination-manifest versions first, otherwise all versions from `--source` or an auto-detected target. An explicit version bypasses resolution. Repeatable. Refuses a floating version. |
-| `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills`. |
-| `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Must match the destination you installed to. |
+| `-d, --destination <PATH>` | install, list | Skills destination and manifest location. Default `.agents/skills` under the nearest Git or solution directory (see below). Explicit relative paths use the invocation directory. |
+| `-d, --destination <PATH>` | uninstall | Where the tool removes skills from. Uses the same default discovery as install. Must match the destination you installed to. |
 | `--global-packages <PATH>` | install, list | Overrides the NuGet global-packages directory. A relative path is resolved from the invocation directory. |
 | `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--source` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
 | `-p, --package <ID[@VERSION]>` | uninstall | Removes this package's skills from all tracked versions, or only the exact version you name. |
-| `--stale` | uninstall | Removes only skills whose exact package/version is no longer referenced by the target. Needs a solution or project. Cannot combine with `--package`. |
+| `--stale` | uninstall | Removes skills whose exact package/version no longer matches the source. When both paths are automatic and the destination is above the current directory, preserves package IDs absent from the source; an explicit source or destination also includes unreferenced packages. Needs a solution or project. Cannot combine with `--package`. |
 | `-s, --source <PATH>` | uninstall | With `--stale`, the solution, project, or directory to read package references from for comparison. Defaults to searching the current directory. |
 | `--dry-run` | install, uninstall | Reports what would change, and writes nothing. |
 
+### Default skills folder
+
+Without `--destination`, `install`, `list`, and `uninstall` walk upward from the current
+directory and use the first directory containing any of:
+
+- A `.git` directory or file (including a Git worktree's `.git` file).
+- A `.sln` or `.slnx` file, with a case-insensitive extension.
+
+The default destination is `.agents/skills` beneath that directory. If no marker is found,
+it is `.agents/skills` beneath the current directory. This follows the nearest-marker behavior
+of the .NET SDK's automatic local tool-manifest creation: a closer solution directory wins
+over a Git root farther up.
+
+As in the SDK's directory-selection routine, discovery stops before examining the filesystem
+root. At each directory it checks for a `.git` directory first, then enumerates solution files,
+and then checks for a `.git` file. Enumeration failures are reported rather than bypassed
+because a `.git` file exists.
+
+For example, running from `repo/src/App` installs into `repo/.agents/skills` when `repo`
+contains `.git` and neither `src` nor `App` has another marker. Listing and uninstalling from
+that subdirectory use the same skills folder and ownership manifest, including with
+`--interactive` or `--dry-run`.
+
+This discovery changes only the default skills destination, not which projects supply package
+references. Source auto-detection still searches the current directory; an explicit `--source`
+and a relative `--global-packages` still resolve from the invocation directory.
+
+When both the source and destination are automatic and the destination is above the invocation
+directory, operations are limited to package IDs in the selected project's package results.
+`install` installs or updates those packages without reporting other installed packages as stale
+or blocking the interactive picker because of them. `uninstall --stale` removes old versions only
+for package IDs still referenced by that source. Both preserve skills for packages absent from
+its results, including during interactive and dry-run operations.
+
+For example, if `App1` references Package.A and `App2` references Package.B, running from
+`repo/src/App1` updates Package.A's skills in `repo/.agents/skills` and leaves Package.B's skills
+alone. No explicit `--source` or `--destination` is needed.
+
+The shared manifest does not record project ownership, so this automatic project scope cannot
+remove a package that disappeared entirely from `App1`: it might still belong to `App2`.
+Use an explicit `--source` with the repository solution for a complete stale comparison.
+Explicit source/destination choices retain their existing authoritative comparison behavior;
+`--source .` compares the entire destination against only the current project's results.
+Explicit package operations and read-only `list` retain their existing behavior.
+
+If an ancestor cannot be enumerated, the error names that directory. Fix its permissions or
+pass an explicit `--destination` to bypass discovery.
+
+Existing skills in a previously used subdirectory are not moved automatically. Name that
+folder with `--destination` to list or uninstall them.
+
 ### Target another agent's folder
 
-`.agents/skills` is the vendor-neutral default destination. Point `--destination` anywhere else:
+`.agents/skills` is the vendor-neutral default destination. An explicit `--destination`
+bypasses discovery. Relative paths resolve from the invocation directory, even when the
+explicit path is `.agents/skills`. Point it anywhere else:
 
 ```bash
 dotnet-package-skills install --destination .claude/skills
