@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DotnetPackageSkills.Cli;
 using DotnetPackageSkills.Infrastructure;
 using DotnetPackageSkills.Skills;
@@ -24,16 +25,21 @@ public class DestinationCommandLineTests
         }
     }
 
-    private static void Invoke(string workingDirectory, IProcessRunner runner, params string[] args)
+    private static void Invoke(string workingDirectory, IProcessRunner runner, params string[] args) =>
+        Invoke(workingDirectory, runner, args, destinationAncestors: null);
+
+    private static void Invoke(
+        string workingDirectory, IProcessRunner runner, string[] args, IEnumerable<DirectoryInfo>? destinationAncestors)
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
-        Assert.Equal(0, InvokeCapturingConsole(workingDirectory, runner, output, error, args));
+        Assert.Equal(0, InvokeCapturingConsole(workingDirectory, runner, output, error, args, destinationAncestors));
         Assert.Empty(error.ToString());
     }
 
     private static int InvokeCapturingConsole(
-        string workingDirectory, IProcessRunner runner, TextWriter output, TextWriter error, params string[] args)
+        string workingDirectory, IProcessRunner runner, TextWriter output, TextWriter error, string[] args,
+        IEnumerable<DirectoryInfo>? destinationAncestors = null)
     {
         var originalOutput = Console.Out;
         var originalError = Console.Error;
@@ -41,7 +47,7 @@ public class DestinationCommandLineTests
         {
             Console.SetOut(output);
             Console.SetError(error);
-            return CommandLineBuilder.Invoke(args, runner, output, error, workingDirectory);
+            return CommandLineBuilder.Invoke(args, runner, output, error, workingDirectory, destinationAncestors);
         }
         finally
         {
@@ -179,24 +185,11 @@ public class DestinationCommandLineTests
     [InlineData("uninstall", null)]
     public void Implicit_invocation_local_scope_allows_full_install_and_stale_cleanup(string command, string? marker)
     {
-        var basePath = marker is null && OperatingSystem.IsWindows()
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp")
-            : null;
-        using var temp = new TempDirectory(basePath);
+        using var temp = new TempDirectory();
+        DirectoryInfo[] destinationAncestors = [new(temp.Path)];
         var project = temp.CreateFile("App.csproj");
         if (marker == ".git") { temp.CreateDirectory(marker); }
         else if (marker is not null) { temp.CreateFile(marker); }
-        else
-        {
-            foreach (var directory in DestinationLocator.Ancestors(temp.Path))
-            {
-                Assert.False(Directory.Exists(Path.Combine(directory.FullName, ".git")));
-                Assert.DoesNotContain(directory.EnumerateFiles(), file =>
-                    file.Name.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
-                    file.Extension.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
-                    file.Extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase));
-            }
-        }
 
         temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
         var destination = temp.Combine(".agents", "skills");
@@ -204,15 +197,16 @@ public class DestinationCommandLineTests
         if (command == "uninstall")
         {
             temp.CreatePackageWithSkill("Old.Package", "1.0.0", "old-skill");
-            Invoke(temp.Path, runner, "install", "--package", "Mockly@1.0.0", "Old.Package@1.0.0",
-                "--global-packages", temp.Combine("packages"));
+            Invoke(temp.Path, runner,
+                ["install", "--package", "Mockly@1.0.0", "Old.Package@1.0.0", "--global-packages", temp.Combine("packages")],
+                destinationAncestors);
             Assert.Empty(runner.Invocations);
             Assert.True(File.Exists(Path.Combine(destination, "old-skill", "SKILL.md")));
-            Invoke(temp.Path, runner, "uninstall", "--stale");
+            Invoke(temp.Path, runner, ["uninstall", "--stale"], destinationAncestors);
         }
         else
         {
-            Invoke(temp.Path, runner, "install", "--global-packages", temp.Combine("packages"));
+            Invoke(temp.Path, runner, ["install", "--global-packages", temp.Combine("packages")], destinationAncestors);
         }
 
         var target = marker is "App.sln" or "App.slnx" ? temp.Combine(marker) : project;
@@ -221,6 +215,43 @@ public class DestinationCommandLineTests
         Assert.Equal(temp.Path, call.WorkingDirectory);
         Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
         Assert.False(Directory.Exists(Path.Combine(destination, "old-skill")));
+        Assert.Equal(new TrackedSkill("mockly", "1.0.0", "usage"),
+            Assert.Single(InstallManifest.Load(destination).EnumerateSkills()));
+    }
+
+    [Theory]
+    [InlineData("install")]
+    [InlineData("uninstall")]
+    public void Fallback_command_tests_ignore_markers_outside_the_injected_discovery_boundary(string command)
+    {
+        using var temp = new TempDirectory();
+        temp.CreateDirectory(".git");
+        var invocation = temp.CreateDirectory("src", "App");
+        var target = temp.CreateFile("src/App/App.csproj");
+        temp.CreatePackageWithSkill("Mockly", "1.0.0", "usage");
+        temp.CreatePackageWithSkill("Old.Package", "1.0.0", "old-skill");
+        DirectoryInfo[] destinationAncestors = [new(invocation)];
+        var runner = new FakeDotnet();
+        var destination = Path.Combine(invocation, ".agents", "skills");
+        if (command == "uninstall")
+        {
+            Invoke(invocation, runner,
+                ["install", "-p", "Mockly@1.0.0", "Old.Package@1.0.0", "--global-packages", temp.Combine("packages")],
+                destinationAncestors);
+            Assert.Empty(runner.Invocations);
+            Invoke(invocation, runner, ["uninstall", "--stale"], destinationAncestors);
+        }
+        else
+        {
+            Invoke(invocation, runner, ["install", "--global-packages", temp.Combine("packages")], destinationAncestors);
+        }
+
+        var call = Assert.Single(runner.Invocations);
+        Assert.Contains(target, call.Arguments);
+        Assert.Equal(invocation, call.WorkingDirectory);
+        Assert.True(File.Exists(Path.Combine(destination, "usage", "SKILL.md")));
+        Assert.False(Directory.Exists(Path.Combine(destination, "old-skill")));
+        Assert.False(Directory.Exists(temp.Combine(".agents")));
         Assert.Equal(new TrackedSkill("mockly", "1.0.0", "usage"),
             Assert.Single(InstallManifest.Load(destination).EnumerateSkills()));
     }
@@ -353,7 +384,7 @@ public class DestinationCommandLineTests
         using var error = new StringWriter();
 
         Assert.Equal(1, InvokeCapturingConsole(Path.GetDirectoryName(target)!, runner, output, error,
-            "install", "--interactive", "--global-packages", temp.Combine("packages")));
+            ["install", "--interactive", "--global-packages", temp.Combine("packages")]));
 
         Assert.Contains("usage", error.ToString());
         Assert.DoesNotContain("sibling", error.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -402,5 +433,20 @@ public class DestinationCommandLineTests
         Assert.Contains("nearest", output.ToString());
         Assert.Contains(".slnx", output.ToString());
         Assert.Contains("Explicit relative paths", output.ToString());
+    }
+
+    [Fact]
+    public void Stale_help_explains_automatic_preservation_and_explicit_authoritative_scope()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        Assert.Equal(0, CommandLineBuilder.Invoke(["uninstall", "--help"], output, error));
+
+        Assert.Empty(error.ToString());
+        var help = Regex.Replace(output.ToString(), @"\s+", " ");
+        Assert.Contains("When source and destination are automatic and the destination is above the current directory", help);
+        Assert.Contains("packages absent from the source are preserved", help);
+        Assert.Contains("An explicit --source or --destination also includes unreferenced packages", help);
     }
 }

@@ -26,12 +26,15 @@ namespace DotnetPackageSkills.Cli
             IProcessRunner runner,
             TextWriter? output = null,
             TextWriter? error = null,
-            string? workingDirectory = null) =>
-            CommandLineDiagnostics.Invoke(Build(runner, workingDirectory).Parse(args), output ?? Console.Out, error ?? Console.Error);
+            string? workingDirectory = null,
+            IEnumerable<DirectoryInfo>? destinationAncestors = null) =>
+            CommandLineDiagnostics.Invoke(Build(runner, workingDirectory, destinationAncestors).Parse(args),
+                output ?? Console.Out, error ?? Console.Error);
 
         public static RootCommand Build() => Build(new ProcessRunner());
 
-        internal static RootCommand Build(IProcessRunner runner, string? workingDirectory = null)
+        internal static RootCommand Build(
+            IProcessRunner runner, string? workingDirectory = null, IEnumerable<DirectoryInfo>? destinationAncestors = null)
         {
             var source = new Option<string?>("--source", "-s")
             {
@@ -177,7 +180,9 @@ namespace DotnetPackageSkills.Cli
             {
                 Description =
                     "Remove only stale skills: skills whose package the target no longer references, " +
-                    "or references at a different version. Reads the target's package references, " +
+                    "or references at a different version. When source and destination are automatic and the destination " +
+                    "is above the current directory, packages absent from the source are preserved. An explicit --source " +
+                    "or --destination also includes unreferenced packages. Reads the target's package references, " +
                     "so it needs a solution or project.",
             };
 
@@ -213,7 +218,7 @@ namespace DotnetPackageSkills.Cli
             {
                 var invocationDirectory = workingDirectory ?? Directory.GetCurrentDirectory();
                 var destinationValue = DestinationLocator.Resolve(
-                    parseResult.GetValue(uninstallDestination), invocationDirectory);
+                    parseResult.GetValue(uninstallDestination), invocationDirectory, destinationAncestors);
                 var isDryRun = parseResult.GetValue(dryRun);
                 var (id, version) = ParseUninstallFilter(parseResult.GetValue(uninstallPackage));
                 var preserveUnreferencedPackages = UsesPartialSourceScope(
@@ -257,7 +262,8 @@ namespace DotnetPackageSkills.Cli
             InstallRequest BuildRequest(ParseResult parseResult)
             {
                 var invocationDirectory = workingDirectory ?? Directory.GetCurrentDirectory();
-                var destinationValue = DestinationLocator.Resolve(parseResult.GetValue(destination), invocationDirectory);
+                var destinationValue = DestinationLocator.Resolve(
+                    parseResult.GetValue(destination), invocationDirectory, destinationAncestors);
                 return new InstallRequest
                 {
                     Target = parseResult.GetValue(source),

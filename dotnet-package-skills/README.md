@@ -106,6 +106,8 @@ changes anything. Restore the project first, and then try again.
 For named selections, a missing extracted version is not evidence that it is skill-free or
 that its installed skills should be removed. Available versions can still install skills, but
 dropped-skill cleanup for that package waits until every selected version can be inspected.
+This does not bypass replacement safety checks: a file obstructing a tracked cross-version
+replacement still stops the install before any writes.
 
 Multiple versions of a package are allowed. The tool classifies the skills, not just the package
 versions:
@@ -331,7 +333,7 @@ versions of that package; `ID@VERSION` removes only that version's skills. `--st
 | `-i, --interactive` | install | Lets you choose which new skills to add, with descriptions and pagination. Lists only skills that are not installed. Combines with `--source` or `--package`. |
 | `-i, --interactive` | uninstall | Lets you choose which installed skills to remove, with descriptions and pagination. Lists only skills that this tool installed. |
 | `-p, --package <ID[@VERSION]>` | uninstall | Removes this package's skills from all tracked versions, or only the exact version you name. |
-| `--stale` | uninstall | Removes only skills whose exact package/version is no longer referenced by the target. Needs a solution or project. Cannot combine with `--package`. |
+| `--stale` | uninstall | Removes skills whose exact package/version no longer matches the source. When both paths are automatic and the destination is above the current directory, preserves package IDs absent from the source; an explicit source or destination also includes unreferenced packages. Needs a solution or project. Cannot combine with `--package`. |
 | `-s, --source <PATH>` | uninstall | With `--stale`, the solution, project, or directory to read package references from for comparison. Defaults to searching the current directory. |
 | `--dry-run` | install, uninstall | Reports what would change, and writes nothing. |
 

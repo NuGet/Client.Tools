@@ -301,16 +301,19 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
 
         // A choice only adds: it never refreshes or removes what it was not asked about. Without
         // one, cleanup requires inspecting every selected version of a package: a cache gap
-        // cannot establish that the package stopped shipping an installed skill.
-        var offered = choice is null
+        // cannot establish that the package stopped shipping an installed skill, but must not
+        // suppress replacement safety checks.
+        var selectedVersions = choice is null
             ? discovered.ResolvedPackages
                 .GroupBy(package => package.Id, StringComparer.OrdinalIgnoreCase)
-                .Where(group => group.All(package =>
-                    PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, package.Id, package.Version) is not null))
                 .ToDictionary(group => group.Key,
                     group => (IReadOnlyCollection<string>)group.Select(package => package.Version).ToArray(),
                     StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
+        var offered = selectedVersions
+            .Where(pair => pair.Value.All(version =>
+                PackagePathResolver.Resolve(discovered.GlobalPackagesFolder, pair.Key, version) is not null))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 
         var outcome = installer.Install(
             discovered.Destination,
@@ -319,7 +322,8 @@ public sealed class SkillInstallService(DotnetCli dotnet, SkillInstaller install
                 : discovered.Skills.Where(skill => choice.Selected.Contains(skill)).ToArray(),
             request.DryRun,
             offered,
-            choice?.ExpectedInstalled);
+            choice?.ExpectedInstalled,
+            selectedVersions);
 
         return discovered with
         {

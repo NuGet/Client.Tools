@@ -2,14 +2,15 @@ namespace DotnetPackageSkills.Infrastructure;
 
 internal static class DestinationLocator
 {
-    public static string Resolve(string? destination, string workingDirectory)
+    public static string Resolve(
+        string? destination, string workingDirectory, IEnumerable<DirectoryInfo>? ancestors = null)
     {
         if (destination is not null)
         {
             return Path.GetFullPath(destination, workingDirectory);
         }
 
-        return ResolveDefault(workingDirectory, Ancestors(workingDirectory));
+        return ResolveDefault(workingDirectory, ancestors ?? Ancestors(workingDirectory));
     }
 
     internal static string ResolveDefault(string workingDirectory, IEnumerable<DirectoryInfo> ancestors)

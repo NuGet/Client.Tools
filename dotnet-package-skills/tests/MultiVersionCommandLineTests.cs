@@ -58,6 +58,36 @@ public class MultiVersionCommandLineTests
         Assert.Equal(2, InstallManifest.Load(temp.Combine("dest")).EnumerateSkills().Count());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Missing_extra_versions_do_not_turn_a_blocked_replacement_into_a_successful_partial_install(bool dryRun)
+    {
+        using var temp = new TempDirectory();
+        temp.CreatePackageWithSkill("A", "1.0.0", "usage");
+        temp.CreatePackageWithSkill("A", "2.0.0", "usage", "new-skill");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(0, Invoke([.. Args(temp, "install", "A@1.0.0")], output, error));
+        Assert.Empty(error.ToString());
+        output.GetStringBuilder().Clear();
+        Directory.Delete(temp.Combine("dest", "usage"), recursive: true);
+        var blockingFile = temp.CreateFile("dest/usage", "ours");
+        var manifestBefore = File.ReadAllBytes(temp.Combine("dest", InstallManifest.FileName));
+        var args = Args(temp, "install", "A@2.0.0", "A@9.0.0");
+        if (dryRun) { args.Add("--dry-run"); }
+
+        var code = Invoke([.. args], output, error);
+
+        Assert.Equal(1, code);
+        Assert.Contains("cannot replace installed skill 'usage'", error.ToString());
+        Assert.Contains("No skills were changed", error.ToString());
+        Assert.DoesNotContain(dryRun ? "Would copy" : "Copied", output.ToString());
+        Assert.Equal("ours", File.ReadAllText(blockingFile));
+        Assert.Equal(manifestBefore, File.ReadAllBytes(temp.Combine("dest", InstallManifest.FileName)));
+        Assert.False(Directory.Exists(temp.Combine("dest", "new-skill")));
+    }
+
     [Fact]
     public void List_reports_collisions_without_writes_or_install_failure()
     {

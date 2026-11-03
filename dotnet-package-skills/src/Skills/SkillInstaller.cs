@@ -30,12 +30,17 @@ public sealed class SkillInstaller
     /// that cleanup belongs to <c>uninstall --stale</c>. Pass an empty map to only add skills.
     /// Null offers the packages of <paramref name="skills"/> at their versions.
     /// </param>
+    /// <param name="selectedVersions">
+    /// Requested versions for replacement-safety checks, including versions that could not be
+    /// inspected. This does not authorize dropped-skill cleanup. Null uses <paramref name="offered"/>.
+    /// </param>
     public InstallOutcome Install(
         string destinationRoot,
         IReadOnlyList<BundledSkill> skills,
         bool dryRun,
         IReadOnlyDictionary<string, IReadOnlyCollection<string>>? offered = null,
-        IReadOnlyCollection<TrackedSkill>? expectedInstalled = null)
+        IReadOnlyCollection<TrackedSkill>? expectedInstalled = null,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? selectedVersions = null)
     {
         // Package ids compare without regard to case, whatever comparer the caller's map uses:
         // the manifest spells them in lowercase, and packages keep NuGet's casing.
@@ -44,11 +49,10 @@ public sealed class SkillInstaller
                 .ToDictionary(group => group.Key,
                     group => (IReadOnlyCollection<string>)group.Select(skill => skill.PackageVersion).ToArray(),
                     StringComparer.OrdinalIgnoreCase);
-        var versions = offers.ToDictionary(pair => pair.Key,
-            pair => pair.Value.Select(PackagePathResolver.NormalizeVersion).ToHashSet(StringComparer.Ordinal),
-            StringComparer.OrdinalIgnoreCase);
-        bool VersionWasReplaced(TrackedSkill entry) =>
-            versions.TryGetValue(entry.Package, out var offeredVersions) && !offeredVersions.Contains(entry.Version);
+        var versions = NormalizeVersions(offers);
+        var selected = selectedVersions is null ? versions : NormalizeVersions(selectedVersions);
+        static bool VersionWasReplaced(TrackedSkill entry, IReadOnlyDictionary<string, HashSet<string>> versionMap) =>
+            versionMap.TryGetValue(entry.Package, out var offeredVersions) && !offeredVersions.Contains(entry.Version);
 
         using var destinationLock = DestinationLock.Acquire(destinationRoot);
         var manifest = InstallManifest.Load(destinationRoot);
@@ -86,7 +90,7 @@ public sealed class SkillInstaller
                 if (tracked is not null)
                 {
                     protectedPaths.Add(tracked.Skill);
-                    if (VersionWasReplaced(tracked)) { blockedFiles.Add(tracked); }
+                    if (VersionWasReplaced(tracked, selected)) { blockedFiles.Add(tracked); }
                 }
 
                 continue;
@@ -112,7 +116,7 @@ public sealed class SkillInstaller
 
         if (blockedFiles.Count > 0)
         {
-            throw CannotReplaceTrackedSkills(blockedFiles, versions);
+            throw CannotReplaceTrackedSkills(blockedFiles, selected);
         }
 
         var current = accepted.Select(skill => skill.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -120,7 +124,7 @@ public sealed class SkillInstaller
         // A skill involved in a conflict is never removed by the same run.
         var removed = trackedSkills
             .Where(entry => !current.Contains(entry.Skill) && !protectedPaths.Contains(entry.Skill))
-            .Where(VersionWasReplaced)
+            .Where(entry => VersionWasReplaced(entry, versions))
             .OrderBy(entry => entry.Skill, StringComparer.Ordinal)
             .ToList();
         var removedPaths = removed.Select(entry => ToAbsolute(destinationRoot, entry.Skill)).ToList();
@@ -189,6 +193,12 @@ public sealed class SkillInstaller
 
     internal static bool SameVersion(string left, string right) =>
         VersionComparer.VersionRelease.Equals(PackageCoordinate.ParseVersion(left), PackageCoordinate.ParseVersion(right));
+
+    private static Dictionary<string, HashSet<string>> NormalizeVersions(
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> versions) =>
+        versions.ToDictionary(pair => pair.Key,
+            pair => pair.Value.Select(PackagePathResolver.NormalizeVersion).ToHashSet(StringComparer.Ordinal),
+            StringComparer.OrdinalIgnoreCase);
 
     private static PackageSkillsException CannotReplaceTrackedSkills(
         IReadOnlyList<TrackedSkill> blocked,

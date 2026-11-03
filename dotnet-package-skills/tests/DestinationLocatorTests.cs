@@ -76,7 +76,8 @@ public class DestinationLocatorTests
         using var temp = new TempDirectory();
         var destination = temp.Combine("custom-skills");
 
-        Assert.Equal(destination, DestinationLocator.Resolve(destination, temp.Combine("nonexistent")));
+        Assert.Equal(destination, DestinationLocator.Resolve(destination, temp.Combine("nonexistent"),
+            [new(temp.Combine("unreadable"))]));
         Assert.False(Directory.Exists(destination));
     }
 
